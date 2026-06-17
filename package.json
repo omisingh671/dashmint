@@ -1,0 +1,19 @@
+{
+  "name": "dashmint",
+  "version": "1.0.0",
+  "description": "DashMint MVP - Dynamic Dashboard Generator SaaS",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "install:all": "npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

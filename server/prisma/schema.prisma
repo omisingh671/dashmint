@@ -1,0 +1,113 @@
+datasource db {
+  provider = "mysql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum GlobalRole {
+  SUPER_ADMIN
+  ADMIN
+}
+
+model User {
+  id           String               @id @default(uuid())
+  email        String               @unique
+  passwordHash String
+  globalRole   GlobalRole           @default(ADMIN)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  assignments  DashboardAssignment[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Dashboard {
+  id          String                @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  connection  DatabaseConnection?
+  assignments DashboardAssignment[]
+  models      SchemaModel[]
+
+  @@map("dashboards")
+}
+
+model DatabaseConnection {
+  id          String    @id @default(uuid())
+  dashboardId String    @unique
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  host        String
+  port        Int       @default(3306)
+  username    String
+  password    String
+  database    String
+  sslEnabled  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("database_connections")
+}
+
+model DashboardAssignment {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dashboardId     String
+  dashboard       Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  permissionsJson String    // JSON containing permissions (e.g. { "read": true, "export": true })
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, dashboardId])
+  @@map("dashboard_assignments")
+}
+
+model SchemaModel {
+  id          String        @id @default(uuid())
+  dashboardId String
+  dashboard   Dashboard     @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  name        String        // Actual database table name
+  displayName String        // User friendly label (singularized/capitalized)
+  isVisible   Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  fields      SchemaField[]
+
+  @@unique([dashboardId, name])
+  @@map("schema_models")
+}
+
+model SchemaField {
+  id            String      @id @default(uuid())
+  schemaModelId String
+  schemaModel   SchemaModel @relation(fields: [schemaModelId], references: [id], onDelete: Cascade)
+  name          String      // Actual database column name
+  displayName   String      // User friendly label
+  type          String      // data type e.g., varchar, int, datetime
+  isPrimaryKey  Boolean     @default(false)
+  isNullable    Boolean     @default(true)
+  isUnique      Boolean     @default(false)
+  isVisible     Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([schemaModelId, name])
+  @@map("schema_fields")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String   // e.g., "USER_LOGIN", "CREATE_DASHBOARD", "EXPORT_CSV"
+  details   String   @db.Text
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
