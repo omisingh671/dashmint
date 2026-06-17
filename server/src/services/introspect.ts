@@ -14,6 +14,18 @@ interface ParsedModel {
   fields: ParsedField[];
 }
 
+function formatName(name: string): string {
+  if (!name) return '';
+  return name
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+    .trim();
+}
+
 /**
  * Introspects a live MySQL database to retrieve tables and field metadata
  */
@@ -183,10 +195,7 @@ export async function syncDashboardSchema(dashboardId: string, parsedModels: Par
 
     // 3. Upsert models and fields
     for (const pModel of parsedModels) {
-      const displayName = pModel.name
-        .replace(/([A-Z])/g, ' $1') // insert space before capital letters
-        .replace(/^./, str => str.toUpperCase()) // capitalize first letter
-        .trim();
+      const displayName = formatName(pModel.name);
 
       // Upsert the schema model
       const dbModel = await tx.schemaModel.upsert({
@@ -223,11 +232,7 @@ export async function syncDashboardSchema(dashboardId: string, parsedModels: Par
 
       // Upsert fields
       for (const pField of pModel.fields) {
-        const fieldDisplayName = pField.name
-          .replace(/_([a-z])/g, (_, letter) => ` ${letter.toUpperCase()}`) // convert snake_case to Space Case
-          .replace(/([A-Z])/g, ' $1') // insert space before capital letters
-          .replace(/^./, str => str.toUpperCase()) // capitalize first letter
-          .trim();
+        const fieldDisplayName = formatName(pField.name);
 
         await tx.schemaField.upsert({
           where: {
@@ -256,4 +261,88 @@ export async function syncDashboardSchema(dashboardId: string, parsedModels: Par
       }
     }
   });
+}
+
+/**
+ * Introspects and synchronizes foreign keys from a MySQL database
+ */
+export async function syncMySQLRelations(dashboardId: string, connInfo: any) {
+  let connection;
+  try {
+    connection = await mysql.createConnection({
+      host: connInfo.host,
+      port: parseInt(connInfo.port),
+      user: connInfo.username,
+      password: connInfo.password,
+      database: connInfo.database,
+      ssl: connInfo.sslEnabled ? {} : undefined
+    });
+
+    const [relationsResult] = await connection.query(
+      `SELECT 
+        TABLE_NAME, 
+        COLUMN_NAME, 
+        REFERENCED_TABLE_NAME, 
+        REFERENCED_COLUMN_NAME
+       FROM 
+        INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+       WHERE 
+        TABLE_SCHEMA = ? 
+        AND REFERENCED_TABLE_NAME IS NOT NULL`,
+      [connInfo.database]
+    );
+
+    const introspectedRelations = relationsResult as any[];
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Get existing relations in platform DB
+      const existing = await tx.tableRelation.findMany({
+        where: { dashboardId }
+      });
+
+      // We only delete introspected (non-manual) relations that are not in the current database introspection result
+      for (const rel of existing) {
+        if (rel.isManual) continue;
+        const stillExists = introspectedRelations.some(
+          ir => ir.TABLE_NAME === rel.fromTable &&
+                ir.COLUMN_NAME === rel.fromColumn &&
+                ir.REFERENCED_TABLE_NAME === rel.toTable &&
+                ir.REFERENCED_COLUMN_NAME === rel.toColumn
+        );
+        if (!stillExists) {
+          await tx.tableRelation.delete({ where: { id: rel.id } });
+        }
+      }
+
+      // 2. Upsert current introspected relations
+      for (const ir of introspectedRelations) {
+        await tx.tableRelation.upsert({
+          where: {
+            dashboardId_fromTable_fromColumn_toTable_toColumn: {
+              dashboardId,
+              fromTable: ir.TABLE_NAME,
+              fromColumn: ir.COLUMN_NAME,
+              toTable: ir.REFERENCED_TABLE_NAME,
+              toColumn: ir.REFERENCED_COLUMN_NAME
+            }
+          },
+          update: {
+            // Nothing to update if already exists
+          },
+          create: {
+            dashboardId,
+            fromTable: ir.TABLE_NAME,
+            fromColumn: ir.COLUMN_NAME,
+            toTable: ir.REFERENCED_TABLE_NAME,
+            toColumn: ir.REFERENCED_COLUMN_NAME,
+            isManual: false
+          }
+        });
+      }
+    });
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
 }

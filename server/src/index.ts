@@ -9,9 +9,12 @@ dotenv.config();
 import authRouter from './routes/auth.js';
 import adminsRouter from './routes/admins.js';
 import dashboardsRouter from './routes/dashboards.js';
+import reportAssignmentsRouter from './routes/reportAssignments.js';
 import assignmentsRouter from './routes/assignments.js';
 import auditRouter from './routes/audit.js';
 import queryRouter from './routes/query.js';
+import relationsRouter from './routes/relations.js';
+import reportsRouter from './routes/reports.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -34,6 +37,9 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRouter);
 app.use('/api/admins', adminsRouter);
 app.use('/api/dashboards', dashboardsRouter);
+app.use('/api/relations', relationsRouter);
+app.use('/api/reports', reportsRouter);
+app.use('/api/assignments/reports', reportAssignmentsRouter);
 app.use('/api/assignments', assignmentsRouter);
 app.use('/api/audit-logs', auditRouter);
 app.use('/api/query', queryRouter);

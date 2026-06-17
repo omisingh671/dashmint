@@ -3,7 +3,7 @@ import prisma from '../lib/prisma.js';
 import { authenticateToken, requireGlobalRole, AuthenticatedRequest } from '../middleware/auth.js';
 import { createAuditLog } from '../services/audit.js';
 import { GlobalRole } from '@prisma/client';
-import { introspectMySQLConnection, parsePrismaSchemaText, syncDashboardSchema } from '../services/introspect.js';
+import { introspectMySQLConnection, parsePrismaSchemaText, syncDashboardSchema, syncMySQLRelations } from '../services/introspect.js';
 
 
 const router = Router();
@@ -255,6 +255,7 @@ router.post('/:id/introspect', requireGlobalRole([GlobalRole.SUPER_ADMIN]), asyn
 
     const parsedModels = await introspectMySQLConnection(dashboard.connection);
     await syncDashboardSchema(id, parsedModels);
+    await syncMySQLRelations(id, dashboard.connection);
 
     await createAuditLog(
       req.user!.id,

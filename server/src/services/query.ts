@@ -166,3 +166,217 @@ export async function getTableRecords(
     }))
   };
 }
+
+interface ReportColumn {
+  table: string;
+  field: string;
+  alias: string;
+}
+
+interface ReportJoin {
+  type: 'LEFT' | 'INNER';
+  relatedTable: string;
+  fromColumn: string;
+  toColumn: string;
+}
+
+interface ReportFilter {
+  table: string;
+  field: string;
+  operator: 'equals' | 'contains' | 'greaterThan' | 'lessThan';
+  value: string;
+}
+
+/**
+ * Executes a dynamically compiled multi-table JOIN SQL statement based on Report metadata.
+ * Performs rigorous table and column validation against visible schema definitions to prevent SQL injection.
+ */
+export async function getReportRecords(
+  report: {
+    dashboardId: string;
+    baseTable: string;
+    columnsJson: string;
+    joinsJson: string;
+    filtersJson: string;
+  },
+  params: QueryParams
+) {
+  const page = Math.max(1, Number(params.page || 1));
+  const limit = Math.max(1, Number(params.limit || 10));
+  const offset = (page - 1) * limit;
+
+  const search = params.search || '';
+  const sortBy = params.sortBy;
+  const sortOrder = params.sortOrder === 'DESC' ? 'DESC' : 'ASC';
+
+  // 1. Fetch all visible columns from platform DB to prevent SQL Injection
+  const visibleFields = await prisma.schemaField.findMany({
+    where: {
+      schemaModel: {
+        dashboardId: report.dashboardId,
+        isVisible: true
+      },
+      isVisible: true
+    },
+    include: {
+      schemaModel: true
+    }
+  });
+
+  // Valid keys: "tableName.columnName"
+  const validFieldKeys = new Set(visibleFields.map(f => `${f.schemaModel.name}.${f.name}`));
+  
+  // Valid tables
+  const validTables = new Set(visibleFields.map(f => f.schemaModel.name));
+
+  // Parse configurations
+  const selectedColumns: ReportColumn[] = JSON.parse(report.columnsJson || '[]');
+  const joins: ReportJoin[] = JSON.parse(report.joinsJson || '[]');
+  const filters: ReportFilter[] = JSON.parse(report.filtersJson || '[]');
+
+  if (selectedColumns.length === 0) {
+    return { data: [], totalCount: 0, columns: [] };
+  }
+
+  // 2. Validate selected columns and construct SELECT clause
+  const selectParts: string[] = [];
+  for (const col of selectedColumns) {
+    const key = `${col.table}.${col.field}`;
+    if (!validFieldKeys.has(key)) {
+      throw new Error(`Unauthorized or invalid column selection: ${key}`);
+    }
+    // Alias to prevent duplicate name clashes: `orders.id`
+    selectParts.push(`\`${col.table}\`.\`${col.field}\` AS \`${col.table}.${col.field}\``);
+  }
+
+  // 3. Build FROM and JOIN clauses
+  if (!validTables.has(report.baseTable)) {
+    throw new Error(`Invalid base table: ${report.baseTable}`);
+  }
+
+  let sqlFrom = `FROM \`${report.baseTable}\``;
+  for (const join of joins) {
+    if (!validTables.has(join.relatedTable)) {
+      throw new Error(`Invalid join table: ${join.relatedTable}`);
+    }
+    // Validate join fields exist in visible fields
+    const baseFieldKey = `${report.baseTable}.${join.fromColumn}`;
+    const joinFieldKey = `${join.relatedTable}.${join.toColumn}`;
+    if (!validFieldKeys.has(baseFieldKey) || !validFieldKeys.has(joinFieldKey)) {
+      throw new Error(`Invalid join condition: ${baseFieldKey} = ${joinFieldKey}`);
+    }
+
+    const joinType = join.type === 'INNER' ? 'INNER JOIN' : 'LEFT JOIN';
+    sqlFrom += ` ${joinType} \`${join.relatedTable}\` ON \`${report.baseTable}\`.\`${join.fromColumn}\` = \`${join.relatedTable}\`.\`${join.toColumn}\``;
+  }
+
+  // 4. Build WHERE conditions (Default filters + Search)
+  const whereConditions: string[] = [];
+  const queryParams: any[] = [];
+
+  // Add default report filters
+  for (const filter of filters) {
+    const key = `${filter.table}.${filter.field}`;
+    if (!validFieldKeys.has(key)) {
+      throw new Error(`Invalid filter column: ${key}`);
+    }
+
+    const colExpr = `\`${filter.table}\`.\`${filter.field}\``;
+    switch (filter.operator) {
+      case 'equals':
+        whereConditions.push(`${colExpr} = ?`);
+        queryParams.push(filter.value);
+        break;
+      case 'contains':
+        whereConditions.push(`${colExpr} LIKE ?`);
+        queryParams.push(`%${filter.value}%`);
+        break;
+      case 'greaterThan':
+        whereConditions.push(`${colExpr} > ?`);
+        queryParams.push(filter.value);
+        break;
+      case 'lessThan':
+        whereConditions.push(`${colExpr} < ?`);
+        queryParams.push(filter.value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Add search filters
+  if (search) {
+    // Find selected text columns to run search on
+    const searchConditions: string[] = [];
+    for (const col of selectedColumns) {
+      const fieldDef = visibleFields.find(f => f.schemaModel.name === col.table && f.name === col.field);
+      if (fieldDef && ['varchar', 'text', 'char', 'string'].some(t => fieldDef.type.toLowerCase().includes(t))) {
+        searchConditions.push(`\`${col.table}\`.\`${col.field}\` LIKE ?`);
+        queryParams.push(`%${search}%`);
+      }
+    }
+
+    // Fallback: if no text columns, search all selected columns
+    if (searchConditions.length === 0) {
+      for (const col of selectedColumns) {
+        searchConditions.push(`\`${col.table}\`.\`${col.field}\` LIKE ?`);
+        queryParams.push(`%${search}%`);
+      }
+    }
+
+    if (searchConditions.length > 0) {
+      whereConditions.push(`(${searchConditions.join(' OR ')})`);
+    }
+  }
+
+  const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+  // 5. Build ORDER BY sorting safely
+  let orderByClause = '';
+  if (sortBy) {
+    // sortBy is like "orders.id"
+    if (!validFieldKeys.has(sortBy)) {
+      throw new Error(`Invalid sort column: ${sortBy}`);
+    }
+    const [sTable, sField] = sortBy.split('.');
+    orderByClause = `ORDER BY \`${sTable}\`.\`${sField}\` ${sortOrder}`;
+  }
+
+  // Get active connection pool
+  const pool = await dbPoolManager.getPool(report.dashboardId);
+
+  // 6. Retrieve total count
+  const countSql = `SELECT COUNT(*) as total ${sqlFrom} ${whereClause}`;
+  const [countResult] = await pool.query(countSql, queryParams);
+  const totalCount = (countResult as any)[0]?.total || 0;
+
+  // 7. Query records
+  const selectClause = selectParts.join(', ');
+  const recordsSql = `
+    SELECT ${selectClause} 
+    ${sqlFrom} 
+    ${whereClause} 
+    ${orderByClause} 
+    LIMIT ? OFFSET ?
+  `;
+
+  const finalParams = [...queryParams, limit, offset];
+  const [recordsResult] = await pool.query(recordsSql, finalParams);
+
+  // Prepare UI columns meta
+  const uiColumns = selectedColumns.map(col => {
+    const fieldDef = visibleFields.find(f => f.schemaModel.name === col.table && f.name === col.field);
+    return {
+      name: `${col.table}.${col.field}`, // alias name matching row key
+      displayName: col.alias || `${col.table} ${col.field}`,
+      type: fieldDef?.type || 'varchar',
+      isPrimaryKey: fieldDef?.isPrimaryKey || false
+    };
+  });
+
+  return {
+    data: recordsResult as any[],
+    totalCount,
+    columns: uiColumns
+  };
+}
