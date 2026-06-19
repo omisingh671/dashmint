@@ -77,7 +77,7 @@ export default function DashboardPortalLayout({ children }: { children: React.Re
               href={`/admin/dashboard/${dashboardId}`}
               className={`flex items-center justify-between gap-3 px-4 py-2.5 text-xs font-bold rounded-xl transition-all duration-200 border group ${
                 pathname === `/admin/dashboard/${dashboardId}`
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-600/10 border-indigo-500/20'
+                  ? 'bg-linear-to-r from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-600/10 border-indigo-500/20'
                   : 'text-text-muted hover:bg-slate-200/50 hover:text-text-main border-transparent'
               }`}
             >
@@ -94,7 +94,7 @@ export default function DashboardPortalLayout({ children }: { children: React.Re
 
             {activeModel && (
               <div className="pl-3 border-l border-indigo-500 ml-4 mt-1.5 animate-fadeIn">
-                <span className="flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 font-semibold shadow-xs">
+                <span className="flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 shadow-xs">
                   <Table className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
                   <span className="truncate">{formatDisplayName(activeModel.displayName || activeModel.name)}</span>
                 </span>

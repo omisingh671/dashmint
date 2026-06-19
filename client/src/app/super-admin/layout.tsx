@@ -63,7 +63,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
         <div>
           <div className="mb-8 pb-5 border-b border-sidebar-border">
             <Link href="/super-admin" className="text-2xl font-black text-text-main tracking-tight flex items-center gap-2">
-              <div className="h-7 w-7 bg-gradient-to-tr from-indigo-600 to-indigo-400 rounded-lg flex items-center justify-center font-black text-sm text-white shadow-md shadow-indigo-500/15">D</div>
+              <div className="h-7 w-7 bg-linear-to-tr from-indigo-600 to-indigo-400 rounded-lg flex items-center justify-center font-black text-sm text-white shadow-md shadow-indigo-500/15">D</div>
               <span>Dash<span className="text-indigo-600 font-extrabold">Mint</span></span>
             </Link>
             <div className="mt-3 flex flex-col">
@@ -84,7 +84,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
                   href={item.href}
                   className={`flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all duration-200 border ${
                     isActive
-                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-600/15 border-indigo-500/20'
+                      ? 'bg-linear-to-r from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-600/15 border-indigo-500/20'
                       : 'text-text-muted hover:bg-slate-200/50 dark:hover:bg-slate-900/60 hover:text-text-main border-transparent'
                   }`}
                 >
