@@ -4,6 +4,7 @@ import { authenticateToken, requireGlobalRole, AuthenticatedRequest } from '../m
 import { createAuditLog } from '../services/audit.js';
 import { GlobalRole } from '@prisma/client';
 import { introspectMySQLConnection, parsePrismaSchemaText, syncDashboardSchema, syncMySQLRelations } from '../services/introspect.js';
+import { encrypt } from '../lib/crypto.js';
 
 
 const router = Router();
@@ -204,7 +205,7 @@ router.post('/:id/connection', requireGlobalRole([GlobalRole.SUPER_ADMIN]), asyn
         host,
         port: parseInt(port),
         username,
-        password: password !== undefined ? password : '',
+        password: password !== undefined ? encrypt(password) : undefined,
         database,
         sslEnabled: !!sslEnabled
       },
@@ -213,7 +214,7 @@ router.post('/:id/connection', requireGlobalRole([GlobalRole.SUPER_ADMIN]), asyn
         host,
         port: parseInt(port),
         username,
-        password: password || '',
+        password: password ? encrypt(password) : '',
         database,
         sslEnabled: !!sslEnabled
       }

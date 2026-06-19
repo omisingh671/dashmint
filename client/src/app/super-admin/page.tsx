@@ -1,11 +1,27 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
-import { Database, Users, Activity, Clock } from 'lucide-react';
+import { Database, Users, Activity, Clock, Search } from 'lucide-react';
 
 export default function SuperAdminOverview() {
+  // Fetch stats using React Query
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const limit = 10;
+
+  // Debounce search input
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1); // reset page on search
+    }, 400);
+
+    return () => clearTimeout(handler);
+  }, [search]);
+
   // Fetch stats using React Query
   const { data: dashboards, isLoading: dl } = useQuery({
     queryKey: ['dashboards'],
@@ -18,9 +34,16 @@ export default function SuperAdminOverview() {
   });
 
   const { data: auditLogs, isLoading: ll } = useQuery({
-    queryKey: ['audit-logs'],
-    queryFn: () => api.get('/audit-logs').then(res => res.data)
+    queryKey: ['audit-logs', page, debouncedSearch],
+    queryFn: () => api.get('/audit-logs', {
+      params: {
+        page,
+        limit,
+        search: debouncedSearch || undefined
+      }
+    }).then(res => res.data)
   });
+
 
   const loading = dl || al || ll;
 
@@ -41,7 +64,7 @@ export default function SuperAdminOverview() {
   const stats = [
     { name: 'Active Dashboards', value: dashboards?.length || 0, icon: Database, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-100 shadow-sm' },
     { name: 'Admins Registered', value: admins?.length || 0, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100 shadow-sm' },
-    { name: 'Audit Logs Recorded', value: auditLogs?.length || 0, icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-100 shadow-sm' }
+    { name: 'Audit Logs Recorded', value: auditLogs?.totalCount || 0, icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-100 shadow-sm' }
   ];
 
   return (
@@ -74,13 +97,29 @@ export default function SuperAdminOverview() {
 
       {/* Recent Activity Section */}
       <div className="bg-white border border-card-border rounded-2xl shadow-md overflow-hidden">
-        <div className="p-6 border-b border-card-border flex items-center gap-2.5">
-          <div className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse"></div>
-          <Clock className="h-5 w-5 text-indigo-600" />
-          <h2 className="text-lg font-bold text-text-main">Recent System Activity Logs</h2>
+        <div className="p-6 border-b border-card-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse"></div>
+            <Clock className="h-5 w-5 text-indigo-600" />
+            <h2 className="text-lg font-bold text-text-main">Recent System Activity Logs</h2>
+          </div>
+          
+          <div className="relative w-full sm:w-72">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+              <Search className="h-4 w-4 text-text-muted" />
+            </span>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="block w-full rounded-xl border border-card-border bg-white pl-9 pr-3.5 py-2 text-xs text-text-main placeholder-slate-400 shadow-xs"
+              placeholder="Search actions, details, actors..."
+            />
+          </div>
         </div>
+        
         <div className="divide-y divide-card-border overflow-x-auto max-h-[500px]">
-          {auditLogs && auditLogs.length > 0 ? (
+          {auditLogs?.data && auditLogs.data.length > 0 ? (
             <table className="min-w-full divide-y divide-card-border">
               <thead className="bg-slate-50">
                 <tr>
@@ -92,7 +131,7 @@ export default function SuperAdminOverview() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-card-border bg-white">
-                {auditLogs.map((log: any) => (
+                {auditLogs.data.map((log: any) => (
                   <tr key={log.id} className="hover:bg-slate-50 transition-all duration-150">
                     <td className="whitespace-nowrap px-6 py-4.5 text-xs font-semibold font-mono text-text-muted">
                       {new Date(log.createdAt).toLocaleString()}
@@ -117,10 +156,36 @@ export default function SuperAdminOverview() {
             </table>
           ) : (
             <div className="p-10 text-center text-text-muted font-medium">
-              No audit logs captured yet. Try navigating or authenticating to generate activity.
+              {search ? 'No matching logs found.' : 'No audit logs captured yet. Try navigating or authenticating to generate activity.'}
             </div>
           )}
         </div>
+
+        {/* Pagination footer */}
+        {auditLogs?.totalCount > 0 && (
+          <div className="border-t border-card-border bg-slate-50 px-6 py-4 flex items-center justify-between select-none">
+            <div className="text-xs text-text-muted font-medium">
+              Showing page <span className="font-bold text-text-main bg-white px-1.5 py-0.5 rounded border border-card-border">{page}</span> of <span className="font-bold text-text-main">{Math.ceil(auditLogs.totalCount / limit) || 1}</span> ({auditLogs.totalCount} total logs)
+            </div>
+            
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-xl bg-white border border-card-border px-4 py-2 text-xs font-bold text-text-muted hover:text-text-main hover:border-slate-350 disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition-all active:scale-95 shadow-sm"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage(p => Math.min(Math.ceil(auditLogs.totalCount / limit) || 1, p + 1))}
+                disabled={page >= (Math.ceil(auditLogs.totalCount / limit) || 1)}
+                className="rounded-xl bg-white border border-card-border px-4 py-2 text-xs font-bold text-text-muted hover:text-text-main hover:border-slate-350 disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition-all active:scale-95 shadow-sm"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

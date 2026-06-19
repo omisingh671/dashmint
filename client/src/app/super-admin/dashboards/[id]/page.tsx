@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ArrowLeft, Save, Play, FileUp, Settings, Check, ChevronDown, ChevronRight, Eye, EyeOff, Trash2, Plus, Edit2, Users } from 'lucide-react';
 import Link from 'next/link';
+import { REPORT_PRESETS } from '@/lib/presets';
 
 export default function DashboardConfig() {
   const params = useParams();
@@ -61,6 +62,11 @@ export default function DashboardConfig() {
   const [reportFilters, setReportFilters] = useState<any[]>([]);
   const [assigningReport, setAssigningReport] = useState<any>(null);
   const [assignmentUpdates, setAssignmentUpdates] = useState<Record<string, { assigned: boolean, canExport: boolean, existingAssignmentId?: string }>>({});
+  
+  // Load Business Preset State
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [presetWarnings, setPresetWarnings] = useState<string[]>([]);
+
 
   // Fetch Relations
   const { data: relations, refetch: refetchRelations } = useQuery({
@@ -208,6 +214,101 @@ export default function DashboardConfig() {
     setReportSelectedColumns([]);
     setReportColumnAliases({});
     setReportFilters([]);
+    setSelectedPresetId('');
+    setPresetWarnings([]);
+  };
+
+  const handleLoadPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    setPresetWarnings([]);
+    if (!presetId) return;
+
+    // Find the preset
+    let preset: any = null;
+    for (const cat of Object.values(REPORT_PRESETS)) {
+      const found = cat.presets.find(p => p.id === presetId);
+      if (found) {
+        preset = found;
+        break;
+      }
+    }
+
+    if (!preset) return;
+
+    // Build lists of tables and columns present in active dashboard schema
+    const existingTableNames = new Set<string>(dashboard?.models?.map((m: any) => m.name) || []);
+    const existingColumnsMap = new Map<string, Set<string>>(
+      dashboard?.models?.map((m: any) => [
+        m.name,
+        new Set<string>(m.fields?.map((f: any) => f.name) || [])
+      ]) || []
+    );
+
+
+    const warnings: string[] = [];
+
+    // Check base table
+    if (!existingTableNames.has(preset.baseTable)) {
+      warnings.push(`Base table "${preset.baseTable}" is not present in your database schema.`);
+    }
+
+    // Check joins
+    const loadedJoins: any[] = [];
+    preset.joins.forEach((j: any) => {
+      if (!existingTableNames.has(j.relatedTable)) {
+        warnings.push(`Join table "${j.relatedTable}" is not present in your database schema.`);
+      }
+      loadedJoins.push({
+        type: j.type,
+        relatedTable: j.relatedTable,
+        fromColumn: j.fromColumn,
+        toColumn: j.toColumn
+      });
+    });
+
+    // Check columns
+    const loadedColumns: string[] = [];
+    const loadedAliases: Record<string, string> = {};
+    preset.columns.forEach((c: any) => {
+      const tableColumns = existingColumnsMap.get(c.table);
+      if (!existingTableNames.has(c.table)) {
+        warnings.push(`Column source table "${c.table}" is not present in your database schema.`);
+      } else if (tableColumns && !tableColumns.has(c.field)) {
+        warnings.push(`Column "${c.field}" is not present in table "${c.table}".`);
+      }
+      const colKey = `${c.table}.${c.field}`;
+      loadedColumns.push(colKey);
+      loadedAliases[colKey] = c.alias;
+    });
+
+    // Check filters
+    const loadedFilters: any[] = [];
+    preset.filters.forEach((f: any) => {
+      const tableColumns = existingColumnsMap.get(f.table);
+      if (!existingTableNames.has(f.table)) {
+        warnings.push(`Filter source table "${f.table}" is not present in your database schema.`);
+      } else if (tableColumns && !tableColumns.has(f.field)) {
+        warnings.push(`Filter column "${f.field}" is not present in table "${f.table}".`);
+      }
+      loadedFilters.push({
+        table: f.table,
+        field: f.field,
+        operator: f.operator,
+        value: f.value
+      });
+    });
+
+    // Set warnings if any
+    setPresetWarnings(warnings);
+
+    // Apply values to builder form states
+    setReportName(preset.name);
+    setReportDescription(preset.description);
+    setReportBaseTable(preset.baseTable);
+    setReportJoins(loadedJoins);
+    setReportSelectedColumns(loadedColumns);
+    setReportColumnAliases(loadedAliases);
+    setReportFilters(loadedFilters);
   };
 
   const handleReportSubmit = (e: React.FormEvent) => {
@@ -1023,6 +1124,47 @@ export default function DashboardConfig() {
               </div>
 
               <form onSubmit={handleReportSubmit} className="space-y-6">
+                {/* Loader Selection Dropdown */}
+                {!editingReport && (
+                  <div className="bg-slate-50 border border-card-border p-4.5 rounded-2xl space-y-3 relative overflow-hidden shadow-xs">
+                    <div className="absolute top-0 left-0 bottom-0 w-1 bg-indigo-500"></div>
+                    <div className="flex flex-col gap-1.5 pl-2.5">
+                      <label className="block text-xs font-black text-indigo-750 uppercase tracking-widest font-mono">Load Business Pack Preset</label>
+                      <p className="text-[10px] text-text-muted font-medium">Select a predefined report preset to instantly configure joins, projection fields, and criteria tags.</p>
+                    </div>
+                    <div className="pl-2.5 max-w-sm">
+                      <select
+                        value={selectedPresetId}
+                        onChange={(e) => handleLoadPreset(e.target.value)}
+                        className="block w-full rounded-xl border border-card-border bg-white py-2 px-3 text-xs text-text-main focus:border-indigo-500"
+                      >
+                        <option value="">-- Select Predefined Preset --</option>
+                        {Object.entries(REPORT_PRESETS).map(([key, cat]) => (
+                          <optgroup key={key} label={cat.label}>
+                            {cat.presets.map((preset) => (
+                              <option key={preset.id} value={preset.id}>{preset.name}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+
+                    {presetWarnings.length > 0 && (
+                      <div className="mt-3 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-3.5 rounded-xl space-y-1.5 leading-relaxed pl-2.5">
+                        <div className="font-bold flex items-center gap-1">
+                          <span>⚠️ Warning: Schema Mismatches Detected</span>
+                        </div>
+                        <ul className="list-disc pl-4 space-y-1">
+                          {presetWarnings.map((warn, i) => (
+                            <li key={i}>{warn}</li>
+                          ))}
+                        </ul>
+                        <p className="text-[10px] text-amber-600 mt-1.5 font-medium">Please verify and manually map the base table, joins, and columns below to match your actual schema.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <div>
                     <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Report Name</label>

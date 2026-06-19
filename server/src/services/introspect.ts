@@ -1,5 +1,7 @@
 import mysql from 'mysql2/promise';
 import prisma from '../lib/prisma.js';
+import { decrypt } from '../lib/crypto.js';
+
 
 interface ParsedField {
   name: string;
@@ -36,7 +38,7 @@ export async function introspectMySQLConnection(connInfo: any): Promise<ParsedMo
       host: connInfo.host,
       port: parseInt(connInfo.port),
       user: connInfo.username,
-      password: connInfo.password,
+      password: decrypt(connInfo.password),
       database: connInfo.database,
       ssl: connInfo.sslEnabled ? {} : undefined
     });
@@ -273,7 +275,7 @@ export async function syncMySQLRelations(dashboardId: string, connInfo: any) {
       host: connInfo.host,
       port: parseInt(connInfo.port),
       user: connInfo.username,
-      password: connInfo.password,
+      password: decrypt(connInfo.password),
       database: connInfo.database,
       ssl: connInfo.sslEnabled ? {} : undefined
     });
