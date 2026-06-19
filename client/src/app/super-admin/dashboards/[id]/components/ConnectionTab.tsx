@@ -161,7 +161,7 @@ export default function ConnectionTab({ dashboardId, dashboard, refetch }: Conne
                 type="checkbox"
                 checked={sslEnabled}
                 onChange={(e) => setSslEnabled(e.target.checked)}
-                className="h-4.5 w-4.5 rounded border-card-border bg-white text-indigo-650 focus:ring-indigo-500"
+                className="h-4.5 w-4.5 rounded border-card-border bg-white text-indigo-600 focus:ring-indigo-500"
               />
               Secure SSL Connection Required
             </label>

@@ -7,6 +7,7 @@ import api from '@/lib/api';
 import { ArrowLeft, Save, Play, FileUp, Settings, Check, ChevronDown, ChevronRight, Eye, EyeOff, Trash2, Plus, Edit2, Users } from 'lucide-react';
 import Link from 'next/link';
 import { REPORT_PRESETS } from '@/lib/presets';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 export default function DashboardConfig() {
   const params = useParams();
@@ -66,6 +67,19 @@ export default function DashboardConfig() {
   // Load Business Preset State
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [presetWarnings, setPresetWarnings] = useState<string[]>([]);
+
+  // Confirmation Modal state
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
 
   // Fetch Relations
@@ -840,7 +854,7 @@ export default function DashboardConfig() {
                         >
                           {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </button>
-                        <span className="font-mono text-[10px] font-bold text-indigo-650 uppercase tracking-widest px-2.5 py-1 bg-white border border-card-border rounded-lg">
+                        <span className="font-mono text-[10px] font-bold text-indigo-600 uppercase tracking-widest px-2.5 py-1 bg-white border border-card-border rounded-lg">
                           {model.name}
                         </span>
                         <input
@@ -1024,7 +1038,7 @@ export default function DashboardConfig() {
                 <button
                   type="submit"
                   disabled={createRelationMutation.isPending || !fromColumn || !toColumn}
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-650 hover:bg-indigo-600 active:scale-95 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
                 >
                   <Plus className="h-4 w-4" />
                   Create Relationship
@@ -1070,9 +1084,15 @@ export default function DashboardConfig() {
                             <button
                               type="button"
                               onClick={() => {
-                                if (confirm('Are you sure you want to delete this relationship?')) {
-                                  deleteRelationMutation.mutate(rel.id);
-                                }
+                                setConfirmConfig({
+                                  isOpen: true,
+                                  title: 'Delete Relationship',
+                                  message: `Are you sure you want to delete the relationship between ${rel.fromTable}.${rel.fromColumn} and ${rel.toTable}.${rel.toColumn}?`,
+                                  onConfirm: () => {
+                                    deleteRelationMutation.mutate(rel.id);
+                                    setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+                                  }
+                                });
                               }}
                               disabled={deleteRelationMutation.isPending}
                               className="p-1.5 text-red-650 hover:bg-red-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
@@ -1225,7 +1245,7 @@ export default function DashboardConfig() {
                             { type: 'LEFT', relatedTable: '', fromColumn: '', toColumn: '' }
                           ]);
                         }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-card-border bg-white hover:bg-slate-50 text-indigo-650 rounded-xl transition-all cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-card-border bg-white hover:bg-slate-50 text-indigo-600 rounded-xl transition-all cursor-pointer"
                       >
                         <Plus className="h-3.5 w-3.5" /> Add Table Join
                       </button>
@@ -1280,7 +1300,7 @@ export default function DashboardConfig() {
                               </div>
 
                               <div className="flex-1 min-w-[150px]">
-                                <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">Base/Prior Column</label>
+                                <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">Source Column (Existing Table)</label>
                                 <select
                                   required
                                   value={join.fromColumn}
@@ -1304,7 +1324,7 @@ export default function DashboardConfig() {
                               </div>
 
                               <div className="flex-1 min-w-[150px]">
-                                <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">Join Table Column</label>
+                                <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">Target Column (New Table)</label>
                                 <select
                                   required
                                   disabled={!join.relatedTable}
@@ -1376,7 +1396,7 @@ export default function DashboardConfig() {
                                             setReportSelectedColumns(prev => prev.filter(c => c !== colKey));
                                           }
                                         }}
-                                        className="h-4 w-4 rounded border-card-border text-indigo-650 focus:ring-indigo-500 cursor-pointer"
+                                        className="h-4 w-4 rounded border-card-border text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                       />
                                       <span className="truncate">{field.displayName} <span className="text-[10px] text-text-muted font-mono">({field.name})</span></span>
                                     </label>
@@ -1419,7 +1439,7 @@ export default function DashboardConfig() {
                             { table: '', field: '', operator: 'equals', value: '' }
                           ]);
                         }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-card-border bg-white hover:bg-slate-50 text-indigo-650 rounded-xl transition-all cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-card-border bg-white hover:bg-slate-50 text-indigo-600 rounded-xl transition-all cursor-pointer"
                       >
                         <Plus className="h-3.5 w-3.5" /> Add Query Filter
                       </button>
@@ -1518,7 +1538,7 @@ export default function DashboardConfig() {
                   <button
                     type="submit"
                     disabled={createReportMutation.isPending || updateReportMutation.isPending || reportSelectedColumns.length === 0}
-                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-650 hover:bg-indigo-600 active:scale-95 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
                   >
                     <Save className="h-4.5 w-4.5" />
                     {editingReport ? 'Update Report Configuration' : 'Create Report Configuration'}
@@ -1535,7 +1555,7 @@ export default function DashboardConfig() {
                 </div>
                 <button
                   onClick={() => setIsCreatingReport(true)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-650 hover:bg-indigo-600 active:scale-95 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer self-start sm:self-auto"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer self-start sm:self-auto"
                 >
                   <Plus className="h-4.5 w-4.5" />
                   Create New Report
@@ -1583,9 +1603,15 @@ export default function DashboardConfig() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    if (confirm('Are you sure you want to delete this report template?')) {
-                                      deleteReportMutation.mutate(report.id);
-                                    }
+                                    setConfirmConfig({
+                                      isOpen: true,
+                                      title: 'Delete Report Template',
+                                      message: `Are you sure you want to delete the report template "${report.name}"?`,
+                                      onConfirm: () => {
+                                        deleteReportMutation.mutate(report.id);
+                                        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+                                      }
+                                    });
                                   }}
                                   disabled={deleteReportMutation.isPending}
                                   className="p-1.5 text-red-650 hover:bg-red-50 rounded-lg transition-all cursor-pointer disabled:opacity-50"
@@ -1636,7 +1662,7 @@ export default function DashboardConfig() {
                                   }
                                 }));
                               }}
-                              className="h-4 w-4 rounded border-card-border text-indigo-650 focus:ring-indigo-500 cursor-pointer"
+                              className="h-4 w-4 rounded border-card-border text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                             />
                             <span className="text-xs text-text-main font-semibold">{admin.email}</span>
                           </label>
@@ -1655,7 +1681,7 @@ export default function DashboardConfig() {
                                     }
                                   }));
                                 }}
-                                className="h-3.5 w-3.5 rounded border-card-border text-indigo-650 focus:ring-indigo-500 cursor-pointer"
+                                className="h-3.5 w-3.5 rounded border-card-border text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                               />
                               Allow CSV Export
                             </label>
@@ -1680,7 +1706,7 @@ export default function DashboardConfig() {
                     type="button"
                     onClick={handleSaveAssignments}
                     disabled={saveAssignmentsMutation.isPending}
-                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-650 hover:bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-50"
                   >
                     Save Assignments
                   </button>
@@ -1690,6 +1716,14 @@ export default function DashboardConfig() {
           )}
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

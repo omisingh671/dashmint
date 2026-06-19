@@ -148,7 +148,7 @@ export default function ReportViewer() {
           <button
             onClick={handleExportCSV}
             disabled={rows.length === 0}
-            className="flex items-center justify-center gap-2 rounded-xl bg-indigo-650 hover:bg-indigo-600 active:scale-95 px-4.5 py-3 text-xs font-bold text-white shadow-lg shadow-indigo-650/10 border border-indigo-400/10 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer"
+            className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-4.5 py-3 text-xs font-bold text-white shadow-lg shadow-indigo-600/10 border border-indigo-400/10 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer"
           >
             <Download className="h-4 w-4" />
             Export CSV
@@ -201,7 +201,7 @@ export default function ReportViewer() {
                     <div className="flex items-center gap-1.5">
                       <span>{col.displayName}</span>
                       {sortBy === col.name ? (
-                        sortOrder === 'ASC' ? <ChevronUp className="h-3.5 w-3.5 text-indigo-650" /> : <ChevronDown className="h-3.5 w-3.5 text-indigo-650" />
+                        sortOrder === 'ASC' ? <ChevronUp className="h-3.5 w-3.5 text-indigo-600" /> : <ChevronDown className="h-3.5 w-3.5 text-indigo-600" />
                       ) : (
                         <div className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100" />
                       )}

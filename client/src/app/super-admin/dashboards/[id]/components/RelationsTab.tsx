@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { Plus, Trash2, Check } from 'lucide-react';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface RelationsTabProps {
   dashboardId: string;
@@ -18,6 +19,19 @@ export default function RelationsTab({ dashboardId, dashboard }: RelationsTabPro
   const [toColumn, setToColumn] = useState('');
   const [relationsSuccess, setRelationsSuccess] = useState('');
   const [relationsError, setRelationsError] = useState('');
+
+  // Confirmation Modal state
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   // Fetch Relations
   const { data: relations, refetch: refetchRelations } = useQuery({
@@ -209,9 +223,15 @@ export default function RelationsTab({ dashboardId, dashboard }: RelationsTabPro
                         <button
                           type="button"
                           onClick={() => {
-                            if (confirm('Are you sure you want to delete this relationship?')) {
-                              deleteRelationMutation.mutate(rel.id);
-                            }
+                            setConfirmConfig({
+                              isOpen: true,
+                              title: 'Delete Relationship',
+                              message: 'Are you sure you want to delete this relationship?',
+                              onConfirm: () => {
+                                deleteRelationMutation.mutate(rel.id);
+                                setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+                              }
+                            });
                           }}
                           disabled={deleteRelationMutation.isPending}
                           className="p-1.5 text-red-650 hover:bg-red-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
@@ -231,6 +251,14 @@ export default function RelationsTab({ dashboardId, dashboard }: RelationsTabPro
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

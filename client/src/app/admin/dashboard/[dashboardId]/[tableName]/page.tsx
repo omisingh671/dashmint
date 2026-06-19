@@ -202,7 +202,7 @@ export default function DynamicTableView() {
                     <div className="flex items-center gap-1.5">
                       <span>{col.displayName}</span>
                       {sortBy === col.name ? (
-                        sortOrder === 'ASC' ? <ChevronUp className="h-3.5 w-3.5 text-indigo-650" /> : <ChevronDown className="h-3.5 w-3.5 text-indigo-650" />
+                        sortOrder === 'ASC' ? <ChevronUp className="h-3.5 w-3.5 text-indigo-600" /> : <ChevronDown className="h-3.5 w-3.5 text-indigo-600" />
                       ) : (
                         <div className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100" />
                       )}

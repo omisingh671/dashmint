@@ -87,7 +87,7 @@ export default function SuperAdminOverview() {
                 <p className="text-xs font-bold text-text-muted uppercase tracking-wider">{stat.name}</p>
                 <h3 className="text-4xl font-black text-text-main mt-3.5 tracking-tight">{stat.value}</h3>
               </div>
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-indigo-650">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-indigo-600">
                 <Icon className={`h-5 w-5 ${stat.color}`} />
               </div>
             </div>

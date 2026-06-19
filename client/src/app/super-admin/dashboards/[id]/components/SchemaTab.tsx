@@ -135,7 +135,7 @@ export default function SchemaTab({ dashboardId, dashboard, refetch }: SchemaTab
                     >
                       {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                     </button>
-                    <span className="font-mono text-[10px] font-bold text-indigo-650 uppercase tracking-widest px-2.5 py-1 bg-white border border-card-border rounded-lg">
+                    <span className="font-mono text-[10px] font-bold text-indigo-600 uppercase tracking-widest px-2.5 py-1 bg-white border border-card-border rounded-lg">
                       {model.name}
                     </span>
                     <input
@@ -183,7 +183,7 @@ export default function SchemaTab({ dashboardId, dashboard, refetch }: SchemaTab
                                 type="checkbox"
                                 checked={field.isVisible}
                                 onChange={(e) => handleFieldVisibilityChange(mIdx, fIdx, e.target.checked)}
-                                className="h-4.5 w-4.5 rounded border-card-border bg-white text-indigo-650 focus:ring-indigo-500 cursor-pointer"
+                                className="h-4.5 w-4.5 rounded border-card-border bg-white text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                               />
                             </td>
                             <td className="py-3 font-mono text-xs text-text-muted font-medium">{field.name}</td>

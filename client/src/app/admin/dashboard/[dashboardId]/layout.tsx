@@ -19,6 +19,12 @@ export default function DashboardPortalLayout({ children }: { children: React.Re
     queryFn: () => api.get(`/dashboards/${dashboardId}`).then((res: any) => res.data)
   });
 
+  // Fetch assigned custom reports
+  const { data: reports } = useQuery<any[]>({
+    queryKey: ['portal-reports', dashboardId],
+    queryFn: () => api.get(`/reports`, { params: { dashboardId } }).then((res: any) => res.data)
+  });
+
   React.useEffect(() => {
     if (isError) {
       router.push('/admin');
@@ -35,12 +41,16 @@ export default function DashboardPortalLayout({ children }: { children: React.Re
 
   // Filter visible tables/models only
   const visibleModels = dashboard?.models?.filter((m: any) => m.isVisible) || [];
-  
-  // Fetch assigned custom reports
-  const { data: reports } = useQuery<any[]>({
-    queryKey: ['portal-reports', dashboardId],
-    queryFn: () => api.get(`/reports`, { params: { dashboardId } }).then((res: any) => res.data)
-  });
+
+  // Determine if a specific table page is active
+  const isReportRoute = pathname.includes('/report/');
+  const isOverviewRoute = pathname === `/admin/dashboard/${dashboardId}`;
+  const activeTableName = !isOverviewRoute && !isReportRoute && pathname.startsWith(`/admin/dashboard/${dashboardId}/`)
+    ? pathname.substring(`/admin/dashboard/${dashboardId}/`.length)
+    : null;
+  const activeModel = activeTableName
+    ? visibleModels.find((m: any) => m.name === activeTableName)
+    : null;
 
   return (
     <div className="flex-1 flex min-h-0 min-w-0">
@@ -82,25 +92,14 @@ export default function DashboardPortalLayout({ children }: { children: React.Re
               </span>
             </Link>
 
-            <div className="space-y-1 pl-2 border-l border-slate-200 ml-2">
-              {visibleModels.map((model: any) => {
-                const isTableActive = pathname === `/admin/dashboard/${dashboardId}/${model.name}`;
-                return (
-                  <Link
-                    key={model.id}
-                    href={`/admin/dashboard/${dashboardId}/${model.name}`}
-                    className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-all border ${
-                      isTableActive
-                        ? 'bg-indigo-50 border-indigo-100 text-indigo-700 font-bold'
-                        : 'text-text-muted hover:bg-slate-200/30 hover:text-text-main border-transparent'
-                    }`}
-                  >
-                    <Table className={`h-3.5 w-3.5 shrink-0 ${isTableActive ? 'text-indigo-600' : 'text-slate-405'}`} />
-                    <span className="truncate">{formatDisplayName(model.displayName || model.name)}</span>
-                  </Link>
-                );
-              })}
-            </div>
+            {activeModel && (
+              <div className="pl-3 border-l border-indigo-500 ml-4 mt-1.5 animate-fadeIn">
+                <span className="flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 font-semibold shadow-xs">
+                  <Table className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
+                  <span className="truncate">{formatDisplayName(activeModel.displayName || activeModel.name)}</span>
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Reports Section */}

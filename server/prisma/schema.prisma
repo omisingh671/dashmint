@@ -138,9 +138,9 @@ model Report {
   name         String
   description  String?
   baseTable    String             // e.g., "orders"
-  columnsJson  String             // JSON: Array<{ table: string, field: string, alias: string }>
-  joinsJson    String             // JSON: Array<{ type: 'LEFT'|'INNER', relatedTable: string, fromColumn: string, toColumn: string }>
-  filtersJson  String             // JSON: Array<{ table: string, field: string, operator: 'equals'|'contains'|'greaterThan'|'lessThan', value: string }>
+  columnsJson  String             @db.Text // JSON: Array<{ table: string, field: string, alias: string }>
+  joinsJson    String             @db.Text // JSON: Array<{ type: 'LEFT'|'INNER', relatedTable: string, fromColumn: string, toColumn: string }>
+  filtersJson  String             @db.Text // JSON: Array<{ table: string, field: string, operator: 'equals'|'contains'|'greaterThan'|'lessThan', value: string }>
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   assignments  ReportAssignment[]
