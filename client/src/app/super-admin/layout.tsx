@@ -57,9 +57,9 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
   ];
 
   return (
-    <div className="flex flex-1 min-h-screen bg-bg-main text-text-main font-sans">
+    <div className="flex h-screen w-screen overflow-hidden bg-bg-main text-text-main font-sans">
       {/* Sidebar */}
-      <aside className="w-68 border-r border-sidebar-border bg-sidebar-bg flex flex-col justify-between p-6 z-20 shadow-md">
+      <aside className="w-68 border-r border-sidebar-border bg-sidebar-bg flex flex-col justify-between p-6 z-20 shadow-md shrink-0 h-full overflow-y-auto">
         <div>
           <div className="mb-8 pb-5 border-b border-sidebar-border">
             <Link href="/super-admin" className="text-2xl font-black text-text-main tracking-tight flex items-center gap-2">
@@ -108,8 +108,8 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
       </aside>
 
       {/* Main Content Pane */}
-      <div className="flex-1 flex flex-col min-w-0 bg-bg-main">
-        <header className="h-16 border-b border-card-border bg-card-bg flex items-center px-8 justify-between shadow-sm">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-bg-main">
+        <header className="h-16 border-b border-card-border bg-card-bg flex items-center px-8 justify-between shadow-sm shrink-0">
           <h2 className="text-xs font-bold text-text-muted uppercase tracking-widest">Platform Administration Console</h2>
           <div className="text-xs bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 rounded-full px-3 py-1 font-semibold flex items-center gap-1.5 shadow-sm">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -117,7 +117,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
           </div>
         </header>
 
-        <main className="flex-1 p-8 overflow-y-auto relative">
+        <main className="flex-1 p-8 overflow-y-auto relative min-h-0">
           <div className="absolute top-[-10%] right-[10%] w-[300px] h-[300px] rounded-full bg-indigo-500/5 blur-[100px] pointer-events-none"></div>
           <div className="relative z-10">
             {children}

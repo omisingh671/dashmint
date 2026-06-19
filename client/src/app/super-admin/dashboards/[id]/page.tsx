@@ -4,10 +4,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
-import { ArrowLeft, Save, Play, FileUp, Settings, Check, ChevronDown, ChevronRight, Eye, EyeOff, Trash2, Plus, Edit2, Users } from 'lucide-react';
+import { ArrowLeft, Save, Play, FileUp, Settings, Check, ChevronUp, ChevronDown, ChevronRight, Eye, EyeOff, Trash2, Plus, Edit2, Users, GripVertical } from 'lucide-react';
 import Link from 'next/link';
 import { REPORT_PRESETS } from '@/lib/presets';
 import ConfirmationModal from '@/components/ConfirmationModal';
+import ConnectionTab from './components/ConnectionTab';
+import PrismaTab from './components/PrismaTab';
+import SchemaTab from './components/SchemaTab';
+import RelationsTab from './components/RelationsTab';
 
 export default function DashboardConfig() {
   const params = useParams();
@@ -18,36 +22,7 @@ export default function DashboardConfig() {
   // Tabs
   const [activeTab, setActiveTab] = useState<'connection' | 'prisma' | 'schema' | 'relations' | 'reports'>('connection');
 
-  // Connection form states
-  const [host, setHost] = useState('');
-  const [port, setPort] = useState('3306');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [database, setDatabase] = useState('');
-  const [sslEnabled, setSslEnabled] = useState(false);
 
-  // Prisma form states
-  const [schemaText, setSchemaText] = useState('');
-
-  // Schema configuration state
-  const [schemaModels, setSchemaModels] = useState<any[]>([]);
-  const [expandedModels, setExpandedModels] = useState<Record<string, boolean>>({});
-
-  // Messages
-  const [connSuccess, setConnSuccess] = useState('');
-  const [connError, setConnError] = useState('');
-  const [prismaSuccess, setPrismaSuccess] = useState('');
-  const [prismaError, setPrismaError] = useState('');
-  const [schemaSuccess, setSchemaSuccess] = useState('');
-  const [schemaError, setSchemaError] = useState('');
-
-  // Relations states
-  const [fromTable, setFromTable] = useState('');
-  const [fromColumn, setFromColumn] = useState('');
-  const [toTable, setToTable] = useState('');
-  const [toColumn, setToColumn] = useState('');
-  const [relationsSuccess, setRelationsSuccess] = useState('');
-  const [relationsError, setRelationsError] = useState('');
 
   // Reports states
   const [reportsSuccess, setReportsSuccess] = useState('');
@@ -63,6 +38,8 @@ export default function DashboardConfig() {
   const [reportFilters, setReportFilters] = useState<any[]>([]);
   const [assigningReport, setAssigningReport] = useState<any>(null);
   const [assignmentUpdates, setAssignmentUpdates] = useState<Record<string, { assigned: boolean, canExport: boolean, existingAssignmentId?: string }>>({});
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [previewingReport, setPreviewingReport] = useState<any>(null);
   
   // Load Business Preset State
   const [selectedPresetId, setSelectedPresetId] = useState('');
@@ -79,14 +56,6 @@ export default function DashboardConfig() {
     title: '',
     message: '',
     onConfirm: () => {}
-  });
-
-
-  // Fetch Relations
-  const { data: relations, refetch: refetchRelations } = useQuery({
-    queryKey: ['relations', dashboardId],
-    queryFn: () => api.get(`/relations/${dashboardId}`).then(res => res.data),
-    enabled: activeTab === 'relations' || activeTab === 'reports'
   });
 
   // Fetch Reports
@@ -110,46 +79,13 @@ export default function DashboardConfig() {
     enabled: activeTab === 'reports'
   });
 
-  const createRelationMutation = useMutation({
-    mutationFn: (newRel: any) => api.post(`/relations/${dashboardId}`, newRel),
-    onSuccess: () => {
-      refetchRelations();
-      setFromTable('');
-      setFromColumn('');
-      setToTable('');
-      setToColumn('');
-      setRelationsSuccess('Relation added successfully.');
-      setRelationsError('');
-    },
-    onError: (err: any) => {
-      setRelationsError(err.response?.data?.error || 'Failed to create relation');
-      setRelationsSuccess('');
-    }
+  // Fetch Report Preview Data
+  const { data: previewData, isLoading: isPreviewLoading, error: previewError } = useQuery<any>({
+    queryKey: ['report-preview', previewingReport?.id],
+    queryFn: () => api.get(`/reports/${previewingReport.id}/query`, { params: { limit: 10 } }).then(res => res.data),
+    enabled: !!previewingReport,
+    retry: false
   });
-
-  const deleteRelationMutation = useMutation({
-    mutationFn: (relationId: string) => api.delete(`/relations/${dashboardId}/${relationId}`),
-    onSuccess: () => {
-      refetchRelations();
-      setRelationsSuccess('Relation deleted successfully.');
-      setRelationsError('');
-    },
-    onError: (err: any) => {
-      setRelationsError(err.response?.data?.error || 'Failed to delete relation');
-      setRelationsSuccess('');
-    }
-  });
-
-  const handleRelationSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!fromTable || !fromColumn || !toTable || !toColumn) return;
-    createRelationMutation.mutate({
-      fromTable,
-      fromColumn,
-      toTable,
-      toColumn
-    });
-  };
 
   const createReportMutation = useMutation({
     mutationFn: (newReport: any) => api.post(`/reports`, newReport),
@@ -312,9 +248,6 @@ export default function DashboardConfig() {
       });
     });
 
-    // Set warnings if any
-    setPresetWarnings(warnings);
-
     // Apply values to builder form states
     setReportName(preset.name);
     setReportDescription(preset.description);
@@ -323,10 +256,11 @@ export default function DashboardConfig() {
     setReportSelectedColumns(loadedColumns);
     setReportColumnAliases(loadedAliases);
     setReportFilters(loadedFilters);
+    setPresetWarnings(warnings);
   };
 
   const handleReportSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (!reportName || !reportBaseTable || reportSelectedColumns.length === 0) {
       setReportsError('Report Name, Base Table, and at least one Selected Column are required.');
       return;
@@ -413,144 +347,7 @@ export default function DashboardConfig() {
     queryFn: () => api.get(`/dashboards/${dashboardId}`).then(res => res.data)
   });
 
-  // Populate connection details on load
-  useEffect(() => {
-    if (dashboard?.connection) {
-      setHost(dashboard.connection.host || '');
-      setPort(String(dashboard.connection.port || '3306'));
-      setUsername(dashboard.connection.username || '');
-      setDatabase(dashboard.connection.database || '');
-      setSslEnabled(!!dashboard.connection.sslEnabled);
-    }
-    if (dashboard?.models) {
-      setSchemaModels(JSON.parse(JSON.stringify(dashboard.models)));
-    }
-  }, [dashboard]);
 
-  // Mutations
-  const saveConnectionMutation = useMutation({
-    mutationFn: (conn: any) => api.post(`/dashboards/${dashboardId}/connection`, conn),
-    onSuccess: () => {
-      setConnSuccess('Database connection settings saved successfully.');
-      setConnError('');
-      refetch();
-    },
-    onError: (err: any) => {
-      setConnError(err.response?.data?.error || 'Failed to save connection credentials');
-      setConnSuccess('');
-    }
-  });
-
-  const introspectMutation = useMutation({
-    mutationFn: () => api.post(`/dashboards/${dashboardId}/introspect`),
-    onSuccess: (data: any) => {
-      setConnSuccess('Live introspection sync completed successfully. Tables synchronized.');
-      setConnError('');
-      refetch();
-    },
-    onError: (err: any) => {
-      setConnError(err.response?.data?.error || 'Database introspection failed. Verify connection settings.');
-      setConnSuccess('');
-    }
-  });
-
-  const uploadPrismaMutation = useMutation({
-    mutationFn: (text: string) => api.post(`/dashboards/${dashboardId}/upload-schema`, { schemaText: text }),
-    onSuccess: () => {
-      setPrismaSuccess('Prisma schema parsed and synchronized successfully.');
-      setPrismaError('');
-      setSchemaText('');
-      refetch();
-    },
-    onError: (err: any) => {
-      setPrismaError(err.response?.data?.error || 'Prisma schema file parsing failed.');
-      setPrismaSuccess('');
-    }
-  });
-
-  const saveSchemaConfigMutation = useMutation({
-    mutationFn: (config: any) => api.put(`/dashboards/${dashboardId}/schema-config`, { config }),
-    onSuccess: () => {
-      setSchemaSuccess('Layout and visibility configuration saved successfully.');
-      setSchemaError('');
-      refetch();
-    },
-    onError: (err: any) => {
-      setSchemaError(err.response?.data?.error || 'Failed to save layout configuration');
-      setSchemaSuccess('');
-    }
-  });
-
-  const handleConnectionSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setConnSuccess('');
-    setConnError('');
-    saveConnectionMutation.mutate({
-      host,
-      port: parseInt(port),
-      username,
-      password: password || undefined, // send only if modified
-      database,
-      sslEnabled
-    });
-  };
-
-  const handlePrismaSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPrismaSuccess('');
-    setPrismaError('');
-    uploadPrismaMutation.mutate(schemaText);
-  };
-
-  const toggleModelExpand = (modelId: string) => {
-    setExpandedModels(prev => ({
-      ...prev,
-      [modelId]: !prev[modelId]
-    }));
-  };
-
-  const handleModelVisibilityChange = (modelIdx: number, val: boolean) => {
-    const nextModels = [...schemaModels];
-    nextModels[modelIdx].isVisible = val;
-    setSchemaModels(nextModels);
-  };
-
-  const handleModelNameChange = (modelIdx: number, val: string) => {
-    const nextModels = [...schemaModels];
-    nextModels[modelIdx].displayName = val;
-    setSchemaModels(nextModels);
-  };
-
-  const handleFieldVisibilityChange = (modelIdx: number, fieldIdx: number, val: boolean) => {
-    const nextModels = [...schemaModels];
-    nextModels[modelIdx].fields[fieldIdx].isVisible = val;
-    setSchemaModels(nextModels);
-  };
-
-  const handleFieldNameChange = (modelIdx: number, fieldIdx: number, val: string) => {
-    const nextModels = [...schemaModels];
-    nextModels[modelIdx].fields[fieldIdx].displayName = val;
-    setSchemaModels(nextModels);
-  };
-
-  const handleSchemaConfigSubmit = () => {
-    setSchemaSuccess('');
-    setSchemaError('');
-    // Construct simplified save object
-    const config = {
-      models: schemaModels.map(m => ({
-        id: m.id,
-        isVisible: m.isVisible,
-        displayName: m.displayName,
-        fields: m.fields.map((f: any) => ({
-          id: f.id,
-          isVisible: f.isVisible,
-          displayName: f.displayName
-        }))
-      }))
-    };
-    saveSchemaConfigMutation.mutate(config);
-  };
 
   if (dl) {
     return (
@@ -561,7 +358,7 @@ export default function DashboardConfig() {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto pb-12">
+    <div className="space-y-8 pb-12">
       {/* Header breadcrumb */}
       <div className="flex items-center gap-4.5">
         <Link
@@ -630,489 +427,20 @@ export default function DashboardConfig() {
         </button>
       </div>
 
-      {/* Connection Panel */}
       {activeTab === 'connection' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="md:col-span-2 bg-white border border-card-border rounded-2xl p-6.5 shadow-md space-y-6">
-            <h2 className="text-lg font-bold text-text-main">Database Credentials</h2>
-            
-            {connSuccess && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm p-4 rounded-xl flex items-center gap-2.5">
-                <Check className="h-4.5 w-4.5 text-emerald-600 shrink-0" />
-                <span className="font-semibold leading-relaxed">{connSuccess}</span>
-              </div>
-            )}
-            {connError && (
-              <div className="bg-red-50 border border-red-200 text-red-800 text-sm p-4 rounded-xl leading-relaxed">
-                {connError}
-              </div>
-            )}
-
-            <form onSubmit={handleConnectionSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Host Server</label>
-                <input
-                  type="text"
-                  required
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main placeholder-slate-400 sm:text-sm"
-                  placeholder="127.0.0.1"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Port</label>
-                <input
-                  type="number"
-                  required
-                  value={port}
-                  onChange={(e) => setPort(e.target.value)}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main placeholder-slate-400 sm:text-sm"
-                  placeholder="3306"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Database Username</label>
-                <input
-                  type="text"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main placeholder-slate-400 sm:text-sm"
-                  placeholder="root"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">
-                  Password <span className="text-slate-400 font-normal lowercase">(skip update if blank)</span>
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main placeholder-slate-400 sm:text-sm"
-                  placeholder="••••••••"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Database Name</label>
-                <input
-                  type="text"
-                  required
-                  value={database}
-                  onChange={(e) => setDatabase(e.target.value)}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main placeholder-slate-400 sm:text-sm"
-                  placeholder="sales_db"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="inline-flex items-center text-sm font-semibold text-text-muted gap-2.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={sslEnabled}
-                    onChange={(e) => setSslEnabled(e.target.checked)}
-                    className="h-4.5 w-4.5 rounded border-card-border bg-white text-indigo-600 focus:ring-indigo-500"
-                  />
-                  Secure SSL Connection Required
-                </label>
-              </div>
-
-              <div className="sm:col-span-2 pt-4 border-t border-card-border flex flex-wrap gap-3">
-                <button
-                  type="submit"
-                  disabled={saveConnectionMutation.isPending}
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <Save className="h-4 w-4" />
-                  Save Settings
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => introspectMutation.mutate()}
-                  disabled={introspectMutation.isPending || !dashboard?.connection}
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 px-5 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <Play className="h-4 w-4" />
-                  {introspectMutation.isPending ? 'Syncing Schema...' : 'Trigger Live Introspection'}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-card-border p-6 flex flex-col justify-between shadow-md">
-            <div>
-              <div className="h-9 w-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-4 border border-indigo-100">
-                <Settings className="h-4.5 w-4.5" />
-              </div>
-              <h3 className="text-text-main font-bold text-base mb-2">Dev Sandboxing Note</h3>
-              <p className="text-text-muted text-xs leading-relaxed mb-4">
-                Use the mock customer database provided by your local MySQL installation to test dashboard generation.
-              </p>
-              <div className="bg-slate-50 p-4 rounded-xl border border-card-border font-mono text-[11px] text-slate-600 space-y-2">
-                <div><span className="text-slate-400 uppercase tracking-widest text-[9px] block">Host:</span><span className="text-indigo-600 font-bold">127.0.0.1</span></div>
-                <div className="border-t border-slate-200 pt-1.5"><span className="text-slate-400 uppercase tracking-widest text-[9px] block">Port:</span><span className="text-indigo-600 font-bold">3306</span></div>
-                <div className="border-t border-slate-200 pt-1.5"><span className="text-slate-400 uppercase tracking-widest text-[9px] block">User:</span><span className="text-indigo-600 font-bold">YOUR_USER</span></div>
-                <div className="border-t border-slate-200 pt-1.5"><span className="text-slate-400 uppercase tracking-widest text-[9px] block">Database:</span><span className="text-emerald-700 font-bold">dashmint_customer</span></div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ConnectionTab dashboardId={dashboardId} dashboard={dashboard} refetch={refetch} />
       )}
 
-      {/* Prisma Schema Upload Panel */}
       {activeTab === 'prisma' && (
-        <div className="bg-white border border-card-border rounded-2xl p-6.5 shadow-md space-y-6">
-          <div>
-            <h2 className="text-lg font-bold text-text-main">Upload Prisma Schema</h2>
-            <p className="text-sm text-text-muted mt-1">Paste your schema.prisma file content. The parser will detect tables and properties without affecting your live database connection.</p>
-          </div>
-
-          {prismaSuccess && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm p-4 rounded-xl flex items-center gap-2.5">
-              <Check className="h-4.5 w-4.5 text-emerald-600" />
-              <span className="font-semibold leading-relaxed">{prismaSuccess}</span>
-            </div>
-          )}
-          {prismaError && (
-            <div className="bg-red-50 border border-red-200 text-red-800 text-sm p-4 rounded-xl leading-relaxed">
-              {prismaError}
-            </div>
-          )}
-
-          <form onSubmit={handlePrismaSubmit} className="space-y-4">
-            <textarea
-              required
-              value={schemaText}
-              onChange={(e) => setSchemaText(e.target.value)}
-              placeholder={`model User {\n  id    Int    @id @default(autoincrement())\n  email String @unique\n}`}
-              className="block w-full rounded-2xl border border-card-border bg-slate-50 p-4 text-slate-800 font-mono text-sm h-96 leading-relaxed focus:bg-white"
-            />
-
-            <div className="pt-2 border-t border-card-border">
-              <button
-                type="submit"
-                disabled={uploadPrismaMutation.isPending}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-3 text-sm font-bold text-white shadow-lg hover:shadow-xl transition-all cursor-pointer disabled:opacity-50"
-              >
-                <FileUp className="h-4.5 w-4.5" />
-                {uploadPrismaMutation.isPending ? 'Syncing...' : 'Parse & Sync Prisma Schema'}
-              </button>
-            </div>
-          </form>
-        </div>
+        <PrismaTab dashboardId={dashboardId} refetch={refetch} />
       )}
 
-      {/* Schema Visibility Customization Panel */}
       {activeTab === 'schema' && (
-        <div className="bg-white border border-card-border rounded-2xl p-6.5 shadow-md space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-card-border pb-5">
-            <div>
-              <h2 className="text-lg font-bold text-text-main">Dynamic Navigation Layout</h2>
-              <p className="text-sm text-text-muted mt-1">Configure user-friendly labels and toggle visibility of tables/fields for admin users.</p>
-            </div>
-            <button
-              onClick={handleSchemaConfigSubmit}
-              disabled={saveSchemaConfigMutation.isPending}
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-3 text-sm font-bold text-white shadow-lg transition-all cursor-pointer disabled:opacity-50 self-start sm:self-auto"
-            >
-              <Save className="h-4.5 w-4.5" />
-              Save Layout Configurations
-            </button>
-          </div>
-
-          {schemaSuccess && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm p-4 rounded-xl flex items-center gap-2.5">
-              <Check className="h-4.5 w-4.5 text-emerald-600" />
-              <span className="font-semibold leading-relaxed">{schemaSuccess}</span>
-            </div>
-          )}
-          {schemaError && (
-            <div className="bg-red-50 border border-red-200 text-red-800 text-sm p-4 rounded-xl leading-relaxed">
-              {schemaError}
-            </div>
-          )}
-
-          {schemaModels.length > 0 ? (
-            <div className="space-y-4 pt-2">
-              {schemaModels.map((model, mIdx) => {
-                const isExpanded = !!expandedModels[model.id];
-                return (
-                  <div key={model.id} className="border border-card-border bg-slate-50 rounded-2xl overflow-hidden shadow-sm">
-                    {/* Model header bar */}
-                    <div className="p-4.5 flex items-center justify-between bg-slate-100/40 hover:bg-slate-100/80 transition-all select-none">
-                      <div className="flex items-center gap-3.5 flex-1 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => toggleModelExpand(model.id)}
-                          className="p-1.5 text-text-muted hover:text-text-main rounded-lg hover:bg-slate-200 transition-all"
-                        >
-                          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </button>
-                        <span className="font-mono text-[10px] font-bold text-indigo-600 uppercase tracking-widest px-2.5 py-1 bg-white border border-card-border rounded-lg">
-                          {model.name}
-                        </span>
-                        <input
-                          type="text"
-                          value={model.displayName}
-                          onChange={(e) => handleModelNameChange(mIdx, e.target.value)}
-                          className="bg-transparent border-b border-transparent hover:border-slate-350 focus:border-indigo-500 text-text-main text-sm font-bold py-0.5 px-2 focus:ring-0 focus:outline-none w-52 transition-all rounded"
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-4">
-                        <button
-                          type="button"
-                          onClick={() => handleModelVisibilityChange(mIdx, !model.isVisible)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-full border transition-all cursor-pointer select-none ${
-                            model.isVisible
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                              : 'bg-white border-card-border text-text-muted hover:text-text-main'
-                          }`}
-                        >
-                          {model.isVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                          {model.isVisible ? 'Visible' : 'Hidden'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Fields list sub table */}
-                    {isExpanded && (
-                      <div className="p-5 bg-white border-t border-card-border overflow-x-auto">
-                        <table className="min-w-full divide-y divide-card-border text-xs text-text-main">
-                          <thead>
-                            <tr className="text-[10px] text-text-muted font-bold uppercase tracking-widest">
-                              <th className="pb-3 text-left w-14">Show</th>
-                              <th className="pb-3 text-left">DB Column</th>
-                              <th className="pb-3 text-left">Friendly Label</th>
-                              <th className="pb-3 text-left">Data Type</th>
-                              <th className="pb-3 text-left">Keys</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-card-border">
-                            {model.fields?.map((field: any, fIdx: number) => (
-                              <tr key={field.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="py-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={field.isVisible}
-                                    onChange={(e) => handleFieldVisibilityChange(mIdx, fIdx, e.target.checked)}
-                                    className="h-4.5 w-4.5 rounded border-card-border bg-white text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                  />
-                                </td>
-                                <td className="py-3 font-mono text-xs text-text-muted font-medium">{field.name}</td>
-                                <td className="py-3">
-                                  <input
-                                    type="text"
-                                    value={field.displayName}
-                                    onChange={(e) => handleFieldNameChange(mIdx, fIdx, e.target.value)}
-                                    className="bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-500 text-text-main text-xs py-0.5 px-2 focus:ring-0 focus:outline-none w-52 transition-all rounded font-medium"
-                                  />
-                                </td>
-                                <td className="py-3 text-[10px] font-bold text-text-muted uppercase font-mono">{field.type}</td>
-                                <td className="py-3">
-                                  {field.isPrimaryKey && (
-                                    <span className="text-[9px] font-extrabold uppercase bg-indigo-55 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono">
-                                      🔑 Primary
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-16 border border-dashed border-card-border bg-slate-50 rounded-2xl text-center text-text-muted font-medium">
-              No schema detected yet. Please configure the MySQL connection or paste a Prisma schema first.
-            </div>
-          )}
-        </div>
+        <SchemaTab dashboardId={dashboardId} dashboard={dashboard} refetch={refetch} />
       )}
 
-      {/* Table Relations Panel */}
       {activeTab === 'relations' && (
-        <div className="space-y-6">
-          <div className="bg-white border border-card-border rounded-2xl p-6.5 shadow-md">
-            <h2 className="text-lg font-bold text-text-main">Add Manual logical relationship</h2>
-            <p className="text-sm text-text-muted mt-1 mb-6">Overlay logical Joins between tables without creating physical foreign key constraints in the database.</p>
-
-            {relationsSuccess && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm p-4 rounded-xl flex items-center gap-2.5 mb-5">
-                <Check className="h-4.5 w-4.5 text-emerald-600 shrink-0" />
-                <span className="font-semibold leading-relaxed">{relationsSuccess}</span>
-              </div>
-            )}
-            {relationsError && (
-              <div className="bg-red-50 border border-red-200 text-red-800 text-sm p-4 rounded-xl leading-relaxed mb-5">
-                {relationsError}
-              </div>
-            )}
-
-            <form onSubmit={handleRelationSubmit} className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-              <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Source Table</label>
-                <select
-                  required
-                  value={fromTable}
-                  onChange={(e) => {
-                    setFromTable(e.target.value);
-                    setFromColumn('');
-                  }}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main sm:text-sm"
-                >
-                  <option value="">Select Table</option>
-                  {dashboard?.models?.filter((m: any) => m.isVisible).map((model: any) => (
-                    <option key={model.id} value={model.name}>{model.displayName} ({model.name})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Source Column</label>
-                <select
-                  required
-                  disabled={!fromTable}
-                  value={fromColumn}
-                  onChange={(e) => setFromColumn(e.target.value)}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main sm:text-sm disabled:opacity-50"
-                >
-                  <option value="">Select Column</option>
-                  {dashboard?.models
-                    ?.find((m: any) => m.name === fromTable)
-                    ?.fields?.filter((f: any) => f.isVisible)
-                    .map((field: any) => (
-                      <option key={field.id} value={field.name}>{field.displayName} ({field.name})</option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Destination Table</label>
-                <select
-                  required
-                  value={toTable}
-                  onChange={(e) => {
-                    setToTable(e.target.value);
-                    setToColumn('');
-                  }}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main sm:text-sm"
-                >
-                  <option value="">Select Table</option>
-                  {dashboard?.models?.filter((m: any) => m.isVisible).map((model: any) => (
-                    <option key={model.id} value={model.name}>{model.displayName} ({model.name})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Destination Column</label>
-                <select
-                  required
-                  disabled={!toTable}
-                  value={toColumn}
-                  onChange={(e) => setToColumn(e.target.value)}
-                  className="block w-full rounded-xl border border-card-border bg-white py-2.5 px-4 text-text-main sm:text-sm disabled:opacity-50"
-                >
-                  <option value="">Select Column</option>
-                  {dashboard?.models
-                    ?.find((m: any) => m.name === toTable)
-                    ?.fields?.filter((f: any) => f.isVisible)
-                    .map((field: any) => (
-                      <option key={field.id} value={field.name}>{field.displayName} ({field.name})</option>
-                    ))}
-                </select>
-              </div>
-
-              <div className="sm:col-span-4 flex justify-end">
-                <button
-                  type="submit"
-                  disabled={createRelationMutation.isPending || !fromColumn || !toColumn}
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <Plus className="h-4 w-4" />
-                  Create Relationship
-                </button>
-              </div>
-            </form>
-          </div>
-
-          <div className="bg-white border border-card-border rounded-2xl p-6.5 shadow-md">
-            <h2 className="text-lg font-bold text-text-main mb-4">Active Relationships</h2>
-            
-            {relations && relations.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-card-border text-sm text-text-main">
-                  <thead>
-                    <tr className="text-[10px] text-text-muted font-bold uppercase tracking-widest text-left">
-                      <th className="pb-3 w-1/3">Source (Foreign Key)</th>
-                      <th className="pb-3 w-1/3">Destination (Primary Key)</th>
-                      <th className="pb-3">Origin</th>
-                      <th className="pb-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-card-border font-medium">
-                    {relations.map((rel: any) => (
-                      <tr key={rel.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="py-3.5 font-mono text-xs">
-                          <span className="text-text-main font-bold">{rel.fromTable}</span>
-                          <span className="text-text-muted">.{rel.fromColumn}</span>
-                        </td>
-                        <td className="py-3.5 font-mono text-xs">
-                          <span className="text-emerald-700 font-bold">{rel.toTable}</span>
-                          <span className="text-text-muted">.{rel.toColumn}</span>
-                        </td>
-                        <td className="py-3.5">
-                          {rel.isManual ? (
-                            <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Manual</span>
-                          ) : (
-                            <span className="text-[10px] bg-indigo-50 text-indigo-850 border border-indigo-200 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Database Introspected</span>
-                          )}
-                        </td>
-                        <td className="py-3.5 text-right">
-                          {rel.isManual && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setConfirmConfig({
-                                  isOpen: true,
-                                  title: 'Delete Relationship',
-                                  message: `Are you sure you want to delete the relationship between ${rel.fromTable}.${rel.fromColumn} and ${rel.toTable}.${rel.toColumn}?`,
-                                  onConfirm: () => {
-                                    deleteRelationMutation.mutate(rel.id);
-                                    setConfirmConfig(prev => ({ ...prev, isOpen: false }));
-                                  }
-                                });
-                              }}
-                              disabled={deleteRelationMutation.isPending}
-                              className="p-1.5 text-red-650 hover:bg-red-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                            >
-                              <Trash2 className="h-4.5 w-4.5" />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="p-12 border border-dashed border-card-border bg-slate-50 rounded-2xl text-center text-text-muted font-medium">
-                No database relationships detected or manually declared yet.
-              </div>
-            )}
-          </div>
-        </div>
+        <RelationsTab dashboardId={dashboardId} dashboard={dashboard} />
       )}
 
       {/* Reports Builder Panel */}
@@ -1131,19 +459,19 @@ export default function DashboardConfig() {
           )}
 
           {isCreatingReport ? (
-            <div className="bg-white border border-card-border rounded-2xl p-6.5 shadow-md space-y-6">
-              <div className="flex items-center justify-between border-b border-card-border pb-4">
-                <h2 className="text-lg font-bold text-text-main">{editingReport ? 'Edit Custom Report' : 'Create Custom Report'}</h2>
-                <button
-                  type="button"
-                  onClick={resetReportForm}
-                  className="px-4 py-2 text-xs font-bold text-text-muted hover:text-text-main border border-card-border rounded-xl bg-white hover:bg-slate-50 transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Left Column: Form Content */}
+              <div className="lg:col-span-2 bg-white border border-card-border rounded-2xl p-6.5 shadow-md space-y-6">
+                <div className="border-b border-card-border pb-4">
+                  <h2 className="text-lg font-bold text-text-main">
+                    {editingReport ? 'Edit Custom Report' : 'Create Custom Report'}
+                  </h2>
+                  <p className="text-xs text-text-muted mt-1">
+                    Define report parameters, join tables, select fields, customize display order, and define default query constraints.
+                  </p>
+                </div>
 
-              <form onSubmit={handleReportSubmit} className="space-y-6">
+                <form id="report-form" onSubmit={handleReportSubmit} className="space-y-6">
                 {/* Loader Selection Dropdown */}
                 {!editingReport && (
                   <div className="bg-slate-50 border border-card-border p-4.5 rounded-2xl space-y-3 relative overflow-hidden shadow-xs">
@@ -1379,7 +707,7 @@ export default function DashboardConfig() {
                           <div key={tName} className="border border-card-border rounded-xl p-4 bg-slate-50/50">
                             <h4 className="text-xs font-bold text-indigo-750 uppercase tracking-widest font-mono mb-3">{model.displayName} ({tName})</h4>
                             
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               {model.fields?.filter((f: any) => f.isVisible).map((field: any) => {
                                 const colKey = `${tName}.${field.name}`;
                                 const isChecked = reportSelectedColumns.includes(colKey);
@@ -1418,6 +746,116 @@ export default function DashboardConfig() {
                                   </div>
                                 );
                               })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Columns Order & Aliases */}
+                {reportBaseTable && reportSelectedColumns.length > 0 && (
+                  <div className="space-y-4 border-t border-card-border pt-5">
+                    <div>
+                      <h3 className="text-sm font-bold text-text-main">Selected Columns Order</h3>
+                      <p className="text-xs text-text-muted mt-0.5">Drag items using the grip handle or use up/down arrows to rearrange sequence.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {reportSelectedColumns.map((colKey, index) => {
+                        const [tName, fName] = colKey.split('.');
+                        const model = dashboard?.models?.find((m: any) => m.name === tName);
+                        const field = model?.fields?.find((f: any) => f.name === fName);
+                        const displayName = field ? `${model.displayName} > ${field.displayName}` : colKey;
+                        const isDragging = draggedIndex === index;
+
+                        return (
+                          <div
+                            key={colKey}
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggedIndex(index);
+                              e.dataTransfer.effectAllowed = 'move';
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                            }}
+                            onDragEnter={() => {
+                              if (draggedIndex === null || draggedIndex === index) return;
+                              setReportSelectedColumns(prev => {
+                                const next = [...prev];
+                                const item = next[draggedIndex];
+                                next.splice(draggedIndex, 1);
+                                next.splice(index, 0, item);
+                                return next;
+                              });
+                              setDraggedIndex(index);
+                            }}
+                            onDragEnd={() => {
+                              setDraggedIndex(null);
+                            }}
+                            className={`flex items-center justify-between gap-4 p-3 bg-white border rounded-xl shadow-xs transition-all duration-150 select-none ${
+                              isDragging
+                                ? 'border-indigo-400 bg-indigo-50/20 opacity-50 scale-[0.98]'
+                                : 'border-card-border hover:border-slate-350 hover:bg-slate-50/50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="p-1 cursor-grab hover:bg-slate-200/65 rounded transition-colors text-slate-400 hover:text-slate-600 active:cursor-grabbing">
+                                <GripVertical className="h-4 w-4 shrink-0" />
+                              </div>
+                              <span className="text-xs font-bold text-text-muted font-mono w-5">{index + 1}.</span>
+                              <span className="text-xs font-semibold text-text-main">{displayName} <span className="text-[10px] text-text-muted font-mono">({colKey})</span></span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                placeholder="Alias (e.g. Email)"
+                                value={reportColumnAliases[colKey] || ''}
+                                onChange={(e) => {
+                                  setReportColumnAliases(prev => ({
+                                    ...prev,
+                                    [colKey]: e.target.value
+                                  }));
+                                }}
+                                className="rounded-lg border border-card-border bg-white hover:border-slate-300 focus:border-indigo-500 py-1 px-2.5 text-xs text-text-main placeholder-slate-400 w-36 transition-all"
+                              />
+
+                              <button
+                                type="button"
+                                disabled={index === 0}
+                                onClick={() => {
+                                  setReportSelectedColumns(prev => {
+                                    const next = [...prev];
+                                    const temp = next[index];
+                                    next[index] = next[index - 1];
+                                    next[index - 1] = temp;
+                                    return next;
+                                  });
+                                }}
+                                className="p-1 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-30 cursor-pointer"
+                              >
+                                <ChevronUp className="h-4 w-4" />
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={index === reportSelectedColumns.length - 1}
+                                onClick={() => {
+                                  setReportSelectedColumns(prev => {
+                                    const next = [...prev];
+                                    const temp = next[index];
+                                    next[index] = next[index + 1];
+                                    next[index + 1] = temp;
+                                    return next;
+                                  });
+                                }}
+                                className="p-1 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-30 cursor-pointer"
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </button>
                             </div>
                           </div>
                         );
@@ -1527,24 +965,72 @@ export default function DashboardConfig() {
                   </div>
                 )}
 
-                <div className="pt-5 border-t border-card-border flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={resetReportForm}
-                    className="px-5 py-2.5 text-sm font-bold text-text-muted hover:text-text-main border border-card-border rounded-xl bg-white hover:bg-slate-50 transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={createReportMutation.isPending || updateReportMutation.isPending || reportSelectedColumns.length === 0}
-                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    <Save className="h-4.5 w-4.5" />
-                    {editingReport ? 'Update Report Configuration' : 'Create Report Configuration'}
-                  </button>
+                </form>
+              </div>
+
+              {/* Right Column: Sticky Summary & Actions Sidebar Wrapper */}
+              <div className="lg:col-span-1">
+                <div className="lg:sticky lg:top-6 bg-white border border-card-border rounded-2xl p-6 shadow-md space-y-5">
+                  <h3 className="text-sm font-bold text-text-main">Report Configuration Summary</h3>
+                  
+                  <div className="divide-y divide-card-border text-xs font-semibold text-text-main space-y-3">
+                    <div className="flex justify-between pt-1">
+                      <span className="text-text-muted">Report Name</span>
+                      <span className="truncate max-w-[180px] font-bold text-right" title={reportName || 'Untitled Report'}>
+                        {reportName || 'Untitled Report'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between pt-3">
+                      <span className="text-text-muted">Base Table</span>
+                      <span className="font-mono text-indigo-650 bg-indigo-50/50 px-2 py-0.5 rounded border border-indigo-100">
+                        {reportBaseTable || 'None Selected'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between pt-3">
+                      <span className="text-text-muted">Table Joins</span>
+                      <span>{reportJoins.length} active join(s)</span>
+                    </div>
+                    <div className="flex justify-between pt-3">
+                      <span className="text-text-muted">Columns Selected</span>
+                      <span className={reportSelectedColumns.length === 0 ? 'text-red-500 font-bold' : 'text-emerald-600 font-bold'}>
+                        {reportSelectedColumns.length} selected
+                      </span>
+                    </div>
+                    <div className="flex justify-between pt-3">
+                      <span className="text-text-muted">Default Filters</span>
+                      <span>{reportFilters.length} filter(s)</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-5 border-t border-card-border flex flex-col gap-3">
+                    <button
+                      type="submit"
+                      form="report-form"
+                      disabled={createReportMutation.isPending || updateReportMutation.isPending || !reportName || !reportBaseTable || reportSelectedColumns.length === 0}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <Save className="h-4.5 w-4.5" />
+                      {editingReport ? 'Update Report Configuration' : 'Create Report Configuration'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={resetReportForm}
+                      className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-bold text-text-muted hover:text-text-main border border-card-border rounded-xl bg-white hover:bg-slate-50 transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+
+                    {(!reportName || !reportBaseTable || reportSelectedColumns.length === 0) && (
+                      <div className="text-[10px] text-red-500 leading-normal bg-red-50/50 p-2.5 rounded-lg border border-red-100/50 space-y-0.5">
+                        {!reportName && <div>• Report name is required</div>}
+                        {!reportBaseTable && <div>• Base table is required</div>}
+                        {reportSelectedColumns.length === 0 && <div>• Select at least one column</div>}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </form>
+              </div>
             </div>
           ) : (
             <div className="bg-white border border-card-border rounded-2xl p-6.5 shadow-md space-y-6">
@@ -1586,6 +1072,13 @@ export default function DashboardConfig() {
                             <td className="py-4 text-xs font-semibold text-text-muted">{colsCount} column(s) projected</td>
                             <td className="py-4 text-right">
                               <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewingReport(report)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold bg-emerald-50 text-emerald-750 border border-emerald-150 hover:bg-emerald-100/70 rounded-lg transition-all cursor-pointer"
+                                >
+                                  <Eye className="h-3.5 w-3.5 text-emerald-600" /> Preview
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => openAssignmentsModal(report)}
@@ -1716,6 +1209,104 @@ export default function DashboardConfig() {
           )}
         </div>
       )}
+
+      {/* Report Preview Modal */}
+          {previewingReport && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+              <div className="bg-white border border-card-border rounded-2xl w-full max-w-5xl shadow-2xl p-6.5 space-y-5 flex flex-col max-h-[85vh]">
+                <div className="flex items-center justify-between border-b border-card-border pb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-text-main flex items-center gap-2">
+                      <span className="p-1.5 bg-emerald-50 border border-emerald-150 text-emerald-650 rounded-lg"><Eye className="h-4 w-4" /></span>
+                      Query Execution Preview: {previewingReport.name}
+                    </h3>
+                    <p className="text-xs text-text-muted mt-1">
+                      Testing query layout and verifying data retrieval logic from database tables.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewingReport(null)}
+                    className="px-3 py-1.5 text-xs font-bold text-text-muted hover:text-text-main border border-card-border rounded-lg bg-white hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    Close Preview
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-auto bg-slate-50 border border-card-border rounded-2xl p-4.5 min-h-[250px] flex flex-col justify-center relative">
+                  {isPreviewLoading ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-3 text-text-muted">
+                      <div className="h-7 w-7 animate-spin rounded-full border-3 border-indigo-500 border-t-transparent"></div>
+                      <span className="text-xs font-bold tracking-wide">Compiling SQL and querying database...</span>
+                    </div>
+                  ) : previewError ? (
+                    <div className="bg-red-50 border border-red-200 text-red-800 text-xs p-4 rounded-xl space-y-1.5 leading-relaxed self-stretch">
+                      <div className="font-bold flex items-center gap-1.5">
+                        <span>⚠️ Query Execution Failed</span>
+                      </div>
+                      <p className="font-mono text-[11px] bg-white p-3 rounded-lg border border-red-100 select-all overflow-x-auto">
+                        {(previewError as any)?.response?.data?.error || (previewError as any)?.message || 'Internal database query failure'}
+                      </p>
+                      <p className="text-[10px] text-red-650 font-medium">
+                        This error usually indicates a mismatch in base tables, join conditions, or missing schema fields. Review the columns/joins builder mappings and verify your connections.
+                      </p>
+                    </div>
+                  ) : previewData && (!previewData.data || previewData.data.length === 0) ? (
+                    <div className="text-center py-12 text-xs text-text-muted font-medium">
+                      Query executed successfully, but returned 0 rows matching these constraints.
+                    </div>
+                  ) : previewData ? (
+                    <div className="overflow-x-auto w-full h-full align-top">
+                      <table className="min-w-full divide-y divide-slate-200 text-xs text-slate-700 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                        <thead className="bg-slate-100/70">
+                          <tr className="text-[10px] text-slate-500 font-bold uppercase tracking-wider text-left border-b border-slate-200">
+                            {previewData.columns?.map((col: any) => (
+                              <th key={col.name} className="py-3 px-4 font-mono text-[10px] whitespace-nowrap">
+                                <span className="text-slate-800 font-bold tracking-tight block normal-case font-sans text-xs mb-0.5">{col.displayName}</span>
+                                {col.name}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-150 font-medium">
+                          {previewData.data?.map((row: any, rIdx: number) => (
+                            <tr key={rIdx} className="hover:bg-slate-50/50 transition-colors">
+                              {previewData.columns?.map((col: any) => (
+                                <td key={col.name} className="py-2.5 px-4 font-mono text-[11px] max-w-sm truncate whitespace-nowrap">
+                                  {row[col.name] !== null && row[col.name] !== undefined ? (
+                                    String(row[col.name])
+                                  ) : (
+                                    <span className="text-slate-400 italic font-sans text-[10px]">NULL</span>
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="pt-4 border-t border-card-border flex items-center justify-between gap-4 shrink-0">
+                  <div className="text-[11px] text-text-muted font-semibold">
+                    {previewData && !isPreviewLoading && !previewError && (
+                      <span>
+                        Previewing first <span className="text-indigo-650 font-bold">{previewData.data?.length}</span> rows out of <span className="text-indigo-650 font-bold">{previewData.pagination?.total}</span> total matching records.
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewingReport(null)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 hover:bg-slate-850 px-5 py-2 text-xs font-bold text-white shadow-md transition-all cursor-pointer"
+                  >
+                    Close Preview
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
       <ConfirmationModal
         isOpen={confirmConfig.isOpen}

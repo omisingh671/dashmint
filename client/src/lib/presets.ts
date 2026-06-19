@@ -43,14 +43,14 @@ export const REPORT_PRESETS: Record<string, PresetCategory> = {
         description: "Comprehensive view of booking records joined with customer details and transaction info.",
         baseTable: "bookings",
         joins: [
-          { type: "LEFT", relatedTable: "customers", fromColumn: "customerId", toColumn: "id" }
+          { type: "LEFT", relatedTable: "users", fromColumn: "userId", toColumn: "id" }
         ],
         columns: [
           { table: "bookings", field: "id", alias: "Booking ID" },
           { table: "bookings", field: "status", alias: "Status" },
-          { table: "bookings", field: "created_at", alias: "Booking Date" },
-          { table: "customers", field: "name", alias: "Customer Name" },
-          { table: "customers", field: "email", alias: "Customer Email" }
+          { table: "bookings", field: "createdAt", alias: "Booking Date" },
+          { table: "users", field: "fullName", alias: "Customer Name" },
+          { table: "users", field: "email", alias: "Customer Email" }
         ],
         filters: []
       },
@@ -68,7 +68,7 @@ export const REPORT_PRESETS: Record<string, PresetCategory> = {
           { table: "bookings", field: "status", alias: "Booking Status" }
         ],
         filters: [
-          { table: "bookings", field: "status", operator: "equals", value: "completed" }
+          { table: "bookings", field: "status", operator: "equals", value: "CONFIRMED" }
         ]
       }
     ]
@@ -82,11 +82,11 @@ export const REPORT_PRESETS: Record<string, PresetCategory> = {
         description: "Presents customer order records alongside names, email addresses, and total order amounts.",
         baseTable: "orders",
         joins: [
-          { type: "LEFT", relatedTable: "users", fromColumn: "user_id", toColumn: "id" }
+          { type: "LEFT", relatedTable: "users", fromColumn: "userId", toColumn: "id" }
         ],
         columns: [
           { table: "orders", field: "id", alias: "Order ID" },
-          { table: "orders", field: "total_amount", alias: "Total Amount" },
+          { table: "orders", field: "totalMinor", alias: "Total Amount" },
           { table: "orders", field: "status", alias: "Order Status" },
           { table: "users", field: "name", alias: "Buyer Name" },
           { table: "users", field: "email", alias: "Buyer Email" }
@@ -101,11 +101,11 @@ export const REPORT_PRESETS: Record<string, PresetCategory> = {
         joins: [],
         columns: [
           { table: "orders", field: "id", alias: "Order ID" },
-          { table: "orders", field: "total_amount", alias: "Total Amount" },
+          { table: "orders", field: "totalMinor", alias: "Total Amount" },
           { table: "orders", field: "status", alias: "Status" }
         ],
         filters: [
-          { table: "orders", field: "status", operator: "equals", value: "pending" }
+          { table: "orders", field: "status", operator: "equals", value: "PENDING_PAYMENT" }
         ]
       }
     ]
@@ -119,13 +119,13 @@ export const REPORT_PRESETS: Record<string, PresetCategory> = {
         description: "Matches enrolled students with courses and enrollment date.",
         baseTable: "enrollments",
         joins: [
-          { type: "LEFT", relatedTable: "students", fromColumn: "studentId", toColumn: "id" },
+          { type: "LEFT", relatedTable: "users", fromColumn: "userId", toColumn: "id" },
           { type: "LEFT", relatedTable: "courses", fromColumn: "courseId", toColumn: "id" }
         ],
         columns: [
-          { table: "students", field: "name", alias: "Student Name" },
+          { table: "users", field: "name", alias: "Student Name" },
           { table: "courses", field: "title", alias: "Course Title" },
-          { table: "enrollments", field: "enrolled_at", alias: "Enrollment Date" }
+          { table: "enrollments", field: "enrolledAt", alias: "Enrollment Date" }
         ],
         filters: []
       }
