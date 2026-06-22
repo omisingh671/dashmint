@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { Download, Search, ChevronUp, ChevronDown, RefreshCw, AlertCircle, Layers } from 'lucide-react';
+import { formatDisplayName } from '@/lib/utils';
 
 export default function ReportViewer() {
   const params = useParams();
@@ -196,10 +197,10 @@ export default function ReportViewer() {
                   <th
                     key={col.name}
                     onClick={() => handleSort(col.name)}
-                    className="px-6 py-4.5 text-left text-xs font-extrabold uppercase tracking-wider text-text-muted cursor-pointer hover:text-text-main transition-colors"
+                    className="px-6 py-4.5 text-left text-xs font-extrabold normal-case tracking-wider text-text-muted cursor-pointer hover:text-text-main transition-colors"
                   >
                     <div className="flex items-center gap-1.5">
-                      <span>{col.displayName}</span>
+                      <span>{formatDisplayName(col.displayName)}</span>
                       {sortBy === col.name ? (
                         sortOrder === 'ASC' ? <ChevronUp className="h-3.5 w-3.5 text-indigo-600" /> : <ChevronDown className="h-3.5 w-3.5 text-indigo-600" />
                       ) : (

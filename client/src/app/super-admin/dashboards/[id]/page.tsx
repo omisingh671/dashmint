@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { ArrowLeft, Save, Play, FileUp, Settings, Check, ChevronUp, ChevronDown, ChevronRight, Eye, EyeOff, Trash2, Plus, Edit2, Users, GripVertical } from 'lucide-react';
 import Link from 'next/link';
+import { formatDisplayName } from '@/lib/utils';
 import { REPORT_PRESETS } from '@/lib/presets';
 import ConfirmationModal from '@/components/ConfirmationModal';
 import ConnectionTab from './components/ConnectionTab';
@@ -1262,7 +1263,7 @@ export default function DashboardConfig() {
                           <tr className="text-[10px] text-slate-500 font-bold uppercase tracking-wider text-left border-b border-slate-200">
                             {previewData.columns?.map((col: any) => (
                               <th key={col.name} className="py-3 px-4 font-mono text-[10px] whitespace-nowrap">
-                                <span className="text-slate-800 font-bold tracking-tight block normal-case font-sans text-xs mb-0.5">{col.displayName}</span>
+                                <span className="text-slate-800 font-bold tracking-tight block normal-case font-sans text-xs mb-0.5">{formatDisplayName(col.displayName)}</span>
                                 {col.name}
                               </th>
                             ))}
