@@ -14,6 +14,114 @@ import PrismaTab from './components/PrismaTab';
 import SchemaTab from './components/SchemaTab';
 import RelationsTab from './components/RelationsTab';
 
+const autoMapPreset = (preset: any, schemaModels: any[]) => {
+  const tableMap: Record<string, string> = {};
+  const columnMap: Record<string, string> = {};
+  
+  const existingTables = schemaModels.filter(m => m.isVisible).map(m => m.name);
+  
+  // Helper to find a matching table name
+  const findMatchingTable = (presetTable: string) => {
+    const pt = presetTable.toLowerCase();
+    
+    // 1. Exact match
+    const exact = existingTables.find(t => t.toLowerCase() === pt);
+    if (exact) return exact;
+    
+    // 2. Singular/Plural matches (e.g. orders -> order, users -> user)
+    const singularOrPlural = existingTables.find(t => {
+      const tn = t.toLowerCase();
+      if (tn.endsWith('s') && tn.slice(0, -1) === pt) return t;
+      if (pt.endsWith('s') && pt.slice(0, -1) === tn) return t;
+      if (tn.endsWith('ies') && tn.slice(0, -3) + 'y' === pt) return t;
+      if (pt.endsWith('ies') && pt.slice(0, -3) + 'y' === tn) return t;
+      return null;
+    });
+    if (singularOrPlural) return singularOrPlural;
+    
+    // 3. Substring match (e.g. orders -> customer_orders)
+    const substring = existingTables.find(t => t.toLowerCase().includes(pt) || pt.includes(t.toLowerCase()));
+    if (substring) return substring;
+    
+    return existingTables[0] || ''; // Fallback to first visible table
+  };
+
+  // Helper to find a matching column in a table
+  const findMatchingColumn = (actualTable: string, presetColumn: string) => {
+    const model = schemaModels.find(m => m.name === actualTable);
+    if (!model) return '';
+    
+    const pc = presetColumn.toLowerCase();
+    const fields = model.fields?.filter((f: any) => f.isVisible) || [];
+    const fieldNames = fields.map((f: any) => f.name);
+    
+    // 1. Exact match
+    const exact = fieldNames.find((f: string) => f.toLowerCase() === pc);
+    if (exact) return exact;
+    
+    // 2. Substring/Fuzzy match (e.g. totalMinor -> total_amount, amount)
+    const fuzzy = fieldNames.find((f: string) => {
+      const fn = f.toLowerCase();
+      if (fn.includes(pc) || pc.includes(fn)) return f;
+      // Common business synonyms
+      if (pc === 'totalminor' && (fn.includes('amount') || fn.includes('total') || fn.includes('price') || fn.includes('minor'))) return f;
+      if (pc === 'name' && (fn.includes('fullname') || fn.includes('displayname') || fn.includes('username') || fn.includes('title'))) return f;
+      if (pc === 'id' && (fn === 'id' || fn === '_id' || fn.includes('uuid'))) return f;
+      return null;
+    });
+    if (fuzzy) return fuzzy;
+    
+    return fieldNames[0] || ''; // Fallback to first column
+  };
+
+  // Map tables
+  // Map baseTable
+  const mappedBaseTable = findMatchingTable(preset.baseTable);
+  tableMap[preset.baseTable] = mappedBaseTable;
+  
+  // Map join tables
+  preset.joins.forEach((j: any) => {
+    const mappedJoinTable = findMatchingTable(j.relatedTable);
+    tableMap[j.relatedTable] = mappedJoinTable;
+  });
+
+  // Map columns based on mapped tables
+  preset.columns.forEach((c: any) => {
+    const mappedTable = tableMap[c.table];
+    if (mappedTable) {
+      const mappedCol = findMatchingColumn(mappedTable, c.field);
+      columnMap[`${c.table}.${c.field}`] = mappedCol;
+    } else {
+      columnMap[`${c.table}.${c.field}`] = '';
+    }
+  });
+
+  // Map filters columns based on mapped tables
+  preset.filters.forEach((f: any) => {
+    const mappedTable = tableMap[f.table];
+    if (mappedTable) {
+      const mappedCol = findMatchingColumn(mappedTable, f.field);
+      columnMap[`${f.table}.${f.field}`] = mappedCol;
+    } else {
+      columnMap[`${f.table}.${f.field}`] = '';
+    }
+  });
+
+  // Also map any join fromColumn and toColumn keys
+  preset.joins.forEach((j: any) => {
+    const mappedFromTable = tableMap[preset.baseTable] || preset.baseTable;
+    const mappedToTable = tableMap[j.relatedTable] || j.relatedTable;
+
+    const mappedFromCol = findMatchingColumn(mappedFromTable, j.fromColumn);
+    const mappedToCol = findMatchingColumn(mappedToTable, j.toColumn);
+
+    columnMap[`${preset.baseTable}.${j.fromColumn}`] = mappedFromCol;
+    columnMap[`${j.relatedTable}.${j.toColumn}`] = mappedToCol;
+  });
+
+  return { tableMap, columnMap };
+};
+
 export default function DashboardConfig() {
   const params = useParams();
   const router = useRouter();
@@ -22,8 +130,6 @@ export default function DashboardConfig() {
 
   // Tabs
   const [activeTab, setActiveTab] = useState<'connection' | 'prisma' | 'schema' | 'relations' | 'reports'>('connection');
-
-
 
   // Reports states
   const [reportsSuccess, setReportsSuccess] = useState('');
@@ -36,6 +142,9 @@ export default function DashboardConfig() {
   const [reportJoins, setReportJoins] = useState<any[]>([]);
   const [reportSelectedColumns, setReportSelectedColumns] = useState<string[]>([]);
   const [reportColumnAliases, setReportColumnAliases] = useState<Record<string, string>>({});
+  const [reportColumnFunctions, setReportColumnFunctions] = useState<Record<string, string>>({});
+  const [reportDefaultSortColumn, setReportDefaultSortColumn] = useState('');
+  const [reportDefaultSortOrder, setReportDefaultSortOrder] = useState('ASC');
   const [reportFilters, setReportFilters] = useState<any[]>([]);
   const [assigningReport, setAssigningReport] = useState<any>(null);
   const [assignmentUpdates, setAssignmentUpdates] = useState<Record<string, { assigned: boolean, canExport: boolean, existingAssignmentId?: string }>>({});
@@ -45,6 +154,13 @@ export default function DashboardConfig() {
   // Load Business Preset State
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [presetWarnings, setPresetWarnings] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Schema Mapping Assistant states
+  const [activePreset, setActivePreset] = useState<any>(null);
+  const [tableMappings, setTableMappings] = useState<Record<string, string>>({});
+  const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
+  const [showMappingAssistant, setShowMappingAssistant] = useState(false);
 
   // Confirmation Modal state
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -86,6 +202,13 @@ export default function DashboardConfig() {
     queryFn: () => api.get(`/reports/${previewingReport.id}/query`, { params: { limit: 10 } }).then(res => res.data),
     enabled: !!previewingReport,
     retry: false
+  });
+
+  // Fetch Report Suggestions
+  const { data: suggestions, isLoading: loadingSuggestions, refetch: refetchSuggestions } = useQuery<any[]>({
+    queryKey: ['report-suggestions', dashboardId],
+    queryFn: () => api.get(`/reports/suggestions`, { params: { dashboardId } }).then(res => res.data),
+    enabled: showSuggestions
   });
 
   const createReportMutation = useMutation({
@@ -164,15 +287,116 @@ export default function DashboardConfig() {
     setReportJoins([]);
     setReportSelectedColumns([]);
     setReportColumnAliases({});
+    setReportColumnFunctions({});
+    setReportDefaultSortColumn('');
+    setReportDefaultSortOrder('ASC');
     setReportFilters([]);
     setSelectedPresetId('');
     setPresetWarnings([]);
+    setActivePreset(null);
+    setTableMappings({});
+    setColumnMappings({});
+    setShowMappingAssistant(false);
+  };
+
+  const applyMappedPreset = (preset: any, tMap: Record<string, string>, cMap: Record<string, string>) => {
+    const existingTableNames = new Set<string>(dashboard?.models?.map((m: any) => m.name) || []);
+    const existingColumnsMap = new Map<string, Set<string>>(
+      dashboard?.models?.map((m: any) => [
+        m.name,
+        new Set<string>(m.fields?.map((f: any) => f.name) || [])
+      ]) || []
+    );
+
+    const warnings: string[] = [];
+
+    // Map base table
+    const mappedBase = tMap[preset.baseTable] || preset.baseTable;
+    if (!existingTableNames.has(mappedBase)) {
+      warnings.push(`Mapped base table "${mappedBase}" (originally "${preset.baseTable}") is not present in your database schema.`);
+    }
+
+    // Map joins
+    const loadedJoins: any[] = [];
+    preset.joins.forEach((j: any) => {
+      const mappedJoinTable = tMap[j.relatedTable] || j.relatedTable;
+      const mappedFromCol = cMap[`${preset.baseTable}.${j.fromColumn}`] || j.fromColumn;
+      const mappedToCol = cMap[`${j.relatedTable}.${j.toColumn}`] || j.toColumn;
+
+      if (!existingTableNames.has(mappedJoinTable)) {
+        warnings.push(`Mapped join table "${mappedJoinTable}" (originally "${j.relatedTable}") is not present in your database schema.`);
+      }
+      loadedJoins.push({
+        type: j.type,
+        relatedTable: mappedJoinTable,
+        fromColumn: mappedFromCol,
+        toColumn: mappedToCol
+      });
+    });
+
+    // Map columns
+    const loadedColumns: string[] = [];
+    const loadedAliases: Record<string, string> = {};
+    const loadedFunctions: Record<string, string> = {};
+    preset.columns.forEach((c: any) => {
+      const mappedTable = tMap[c.table] || c.table;
+      const mappedCol = cMap[`${c.table}.${c.field}`] || c.field;
+      const tableColumns = existingColumnsMap.get(mappedTable);
+      
+      if (!existingTableNames.has(mappedTable)) {
+        warnings.push(`Mapped column source table "${mappedTable}" (originally "${c.table}") is not present in your database schema.`);
+      } else if (tableColumns && !tableColumns.has(mappedCol)) {
+        warnings.push(`Mapped column "${mappedCol}" (originally "${c.field}") is not present in table "${mappedTable}".`);
+      }
+      const colKey = `${mappedTable}.${mappedCol}`;
+      loadedColumns.push(colKey);
+      loadedAliases[colKey] = c.alias || '';
+      loadedFunctions[colKey] = c.function || 'NONE';
+    });
+
+    // Map filters
+    const loadedFilters: any[] = [];
+    preset.filters.forEach((f: any) => {
+      const mappedTable = tMap[f.table] || f.table;
+      const mappedCol = cMap[`${f.table}.${f.field}`] || f.field;
+      const tableColumns = existingColumnsMap.get(mappedTable);
+
+      if (!existingTableNames.has(mappedTable)) {
+        warnings.push(`Mapped filter source table "${mappedTable}" (originally "${f.table}") is not present in your database schema.`);
+      } else if (tableColumns && !tableColumns.has(mappedCol)) {
+        warnings.push(`Mapped filter column "${mappedCol}" (originally "${f.field}") is not present in table "${mappedTable}".`);
+      }
+      loadedFilters.push({
+        table: mappedTable,
+        field: mappedCol,
+        operator: f.operator,
+        value: f.value
+      });
+    });
+
+    // Apply values to builder form states
+    setReportName(preset.name);
+    setReportDescription(preset.description);
+    setReportBaseTable(mappedBase);
+    setReportJoins(loadedJoins);
+    setReportSelectedColumns(loadedColumns);
+    setReportColumnAliases(loadedAliases);
+    setReportColumnFunctions(loadedFunctions);
+    setReportDefaultSortColumn('');
+    setReportDefaultSortOrder('ASC');
+    setReportFilters(loadedFilters);
+    setPresetWarnings(warnings);
   };
 
   const handleLoadPreset = (presetId: string) => {
     setSelectedPresetId(presetId);
     setPresetWarnings([]);
-    if (!presetId) return;
+    if (!presetId) {
+      setActivePreset(null);
+      setTableMappings({});
+      setColumnMappings({});
+      return;
+    }
 
     // Find the preset
     let preset: any = null;
@@ -186,7 +410,74 @@ export default function DashboardConfig() {
 
     if (!preset) return;
 
-    // Build lists of tables and columns present in active dashboard schema
+    // Run auto-mapper
+    const { tableMap, columnMap } = autoMapPreset(preset, dashboard?.models || []);
+    
+    // Save to state
+    setActivePreset(preset);
+    setTableMappings(tableMap);
+    setColumnMappings(columnMap);
+
+    // Apply mappings to build forms
+    applyMappedPreset(preset, tableMap, columnMap);
+  };
+
+  const handleTableMapChange = (presetTable: string, actualTable: string) => {
+    if (!activePreset) return;
+    const newTMap = { ...tableMappings, [presetTable]: actualTable };
+    
+    // Reset columns for this preset table because the mapped table changed!
+    const newCMap = { ...columnMappings };
+    
+    // Find matching columns in the new table for any preset columns from this table
+    const model = dashboard?.models?.find((m: any) => m.name === actualTable);
+    const fields = model?.fields?.filter((f: any) => f.isVisible) || [];
+    const firstCol = fields[0]?.name || '';
+
+    // Remap columns for this table
+    activePreset.columns.forEach((c: any) => {
+      if (c.table === presetTable) {
+        const pc = c.field.toLowerCase();
+        const matched = fields.find((f: any) => f.name.toLowerCase() === pc || pc.includes(f.name.toLowerCase()) || f.name.toLowerCase().includes(pc));
+        newCMap[`${c.table}.${c.field}`] = matched ? matched.name : firstCol;
+      }
+    });
+
+    activePreset.filters.forEach((f: any) => {
+      if (f.table === presetTable) {
+        const pc = f.field.toLowerCase();
+        const matched = fields.find((f: any) => f.name.toLowerCase() === pc || pc.includes(f.name.toLowerCase()) || f.name.toLowerCase().includes(pc));
+        newCMap[`${f.table}.${f.field}`] = matched ? matched.name : firstCol;
+      }
+    });
+
+    // Also remap join keys
+    activePreset.joins.forEach((j: any) => {
+      if (j.relatedTable === presetTable) {
+        const pc = j.toColumn.toLowerCase();
+        const matched = fields.find((f: any) => f.name.toLowerCase() === pc || pc.includes(f.name.toLowerCase()) || f.name.toLowerCase().includes(pc));
+        newCMap[`${j.relatedTable}.${j.toColumn}`] = matched ? matched.name : firstCol;
+      }
+      if (activePreset.baseTable === presetTable) {
+        const pc = j.fromColumn.toLowerCase();
+        const matched = fields.find((f: any) => f.name.toLowerCase() === pc || pc.includes(f.name.toLowerCase()) || f.name.toLowerCase().includes(pc));
+        newCMap[`${activePreset.baseTable}.${j.fromColumn}`] = matched ? matched.name : firstCol;
+      }
+    });
+
+    setTableMappings(newTMap);
+    setColumnMappings(newCMap);
+    applyMappedPreset(activePreset, newTMap, newCMap);
+  };
+
+  const handleColumnMapChange = (presetColKey: string, actualCol: string) => {
+    if (!activePreset) return;
+    const newCMap = { ...columnMappings, [presetColKey]: actualCol };
+    setColumnMappings(newCMap);
+    applyMappedPreset(activePreset, tableMappings, newCMap);
+  };
+
+  const handleApplySuggestion = (sug: any) => {
     const existingTableNames = new Set<string>(dashboard?.models?.map((m: any) => m.name) || []);
     const existingColumnsMap = new Map<string, Set<string>>(
       dashboard?.models?.map((m: any) => [
@@ -195,17 +486,14 @@ export default function DashboardConfig() {
       ]) || []
     );
 
-
     const warnings: string[] = [];
 
-    // Check base table
-    if (!existingTableNames.has(preset.baseTable)) {
-      warnings.push(`Base table "${preset.baseTable}" is not present in your database schema.`);
+    if (!existingTableNames.has(sug.baseTable)) {
+      warnings.push(`Base table "${sug.baseTable}" is not present in your database schema.`);
     }
 
-    // Check joins
     const loadedJoins: any[] = [];
-    preset.joins.forEach((j: any) => {
+    sug.joins.forEach((j: any) => {
       if (!existingTableNames.has(j.relatedTable)) {
         warnings.push(`Join table "${j.relatedTable}" is not present in your database schema.`);
       }
@@ -217,10 +505,10 @@ export default function DashboardConfig() {
       });
     });
 
-    // Check columns
     const loadedColumns: string[] = [];
     const loadedAliases: Record<string, string> = {};
-    preset.columns.forEach((c: any) => {
+    const loadedFunctions: Record<string, string> = {};
+    sug.columns.forEach((c: any) => {
       const tableColumns = existingColumnsMap.get(c.table);
       if (!existingTableNames.has(c.table)) {
         warnings.push(`Column source table "${c.table}" is not present in your database schema.`);
@@ -229,12 +517,12 @@ export default function DashboardConfig() {
       }
       const colKey = `${c.table}.${c.field}`;
       loadedColumns.push(colKey);
-      loadedAliases[colKey] = c.alias;
+      loadedAliases[colKey] = c.alias || '';
+      loadedFunctions[colKey] = c.function || 'NONE';
     });
 
-    // Check filters
     const loadedFilters: any[] = [];
-    preset.filters.forEach((f: any) => {
+    sug.filters.forEach((f: any) => {
       const tableColumns = existingColumnsMap.get(f.table);
       if (!existingTableNames.has(f.table)) {
         warnings.push(`Filter source table "${f.table}" is not present in your database schema.`);
@@ -249,15 +537,18 @@ export default function DashboardConfig() {
       });
     });
 
-    // Apply values to builder form states
-    setReportName(preset.name);
-    setReportDescription(preset.description);
-    setReportBaseTable(preset.baseTable);
+    setReportName(sug.name);
+    setReportDescription(sug.description);
+    setReportBaseTable(sug.baseTable);
     setReportJoins(loadedJoins);
     setReportSelectedColumns(loadedColumns);
     setReportColumnAliases(loadedAliases);
+    setReportColumnFunctions(loadedFunctions);
+    setReportDefaultSortColumn(sug.defaultSortColumn || '');
+    setReportDefaultSortOrder(sug.defaultSortOrder || 'ASC');
     setReportFilters(loadedFilters);
     setPresetWarnings(warnings);
+    setShowSuggestions(false);
   };
 
   const handleReportSubmit = (e: React.FormEvent) => {
@@ -272,7 +563,8 @@ export default function DashboardConfig() {
       return {
         table,
         field,
-        alias: reportColumnAliases[colStr] || ''
+        alias: reportColumnAliases[colStr] || '',
+        function: reportColumnFunctions[colStr] || 'NONE'
       };
     });
 
@@ -283,7 +575,9 @@ export default function DashboardConfig() {
       baseTable: reportBaseTable,
       columnsJson: JSON.stringify(cols),
       joinsJson: JSON.stringify(reportJoins),
-      filtersJson: JSON.stringify(reportFilters)
+      filtersJson: JSON.stringify(reportFilters),
+      defaultSortColumn: reportDefaultSortColumn || null,
+      defaultSortOrder: reportDefaultSortOrder || 'ASC'
     };
 
     if (editingReport) {
@@ -307,11 +601,22 @@ export default function DashboardConfig() {
       return acc;
     }, {});
     setReportColumnAliases(aliases);
+
+    const functions = cols.reduce((acc: any, c: any) => {
+      acc[`${c.table}.${c.field}`] = c.function || 'NONE';
+      return acc;
+    }, {});
+    setReportColumnFunctions(functions);
+
+    setReportDefaultSortColumn(report.defaultSortColumn || '');
+    setReportDefaultSortOrder(report.defaultSortOrder || 'ASC');
     
     setReportJoins(JSON.parse(report.joinsJson || '[]'));
     setReportFilters(JSON.parse(report.filtersJson || '[]'));
     setIsCreatingReport(true);
   };
+
+
 
   const openAssignmentsModal = (report: any) => {
     setAssigningReport(report);
@@ -479,36 +784,126 @@ export default function DashboardConfig() {
                     <div className="absolute top-0 left-0 bottom-0 w-1 bg-indigo-500"></div>
                     <div className="flex flex-col gap-1.5 pl-2.5">
                       <label className="block text-xs font-black text-indigo-750 uppercase tracking-widest font-mono">Load Business Pack Preset</label>
-                      <p className="text-[10px] text-text-muted font-medium">Select a predefined report preset to instantly configure joins, projection fields, and criteria tags.</p>
+                      <p className="text-[10px] text-text-muted font-medium">Select a predefined report preset or auto-generate recommended reports using database analysis.</p>
                     </div>
-                    <div className="pl-2.5 max-w-sm">
-                      <select
-                        value={selectedPresetId}
-                        onChange={(e) => handleLoadPreset(e.target.value)}
-                        className="block w-full rounded-xl border border-card-border bg-white py-2 px-3 text-xs text-text-main focus:border-indigo-500"
+                    <div className="flex flex-wrap items-center gap-3 pl-2.5">
+                      <div className="max-w-sm flex-1 min-w-[200px]">
+                        <select
+                          value={selectedPresetId}
+                          onChange={(e) => handleLoadPreset(e.target.value)}
+                          className="block w-full rounded-xl border border-card-border bg-white py-2 px-3 text-xs text-text-main focus:border-indigo-500"
+                        >
+                          <option value="">-- Select Predefined Preset --</option>
+                          {Object.entries(REPORT_PRESETS).map(([key, cat]) => (
+                            <optgroup key={key} label={cat.label}>
+                              {cat.presets.map((preset) => (
+                                <option key={preset.id} value={preset.id}>{preset.name}</option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </div>
+                      <span className="text-xs text-text-muted font-bold">OR</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSuggestions(true);
+                          refetchSuggestions();
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-750 rounded-xl transition-all cursor-pointer shadow-sm active:scale-95"
                       >
-                        <option value="">-- Select Predefined Preset --</option>
-                        {Object.entries(REPORT_PRESETS).map(([key, cat]) => (
-                          <optgroup key={key} label={cat.label}>
-                            {cat.presets.map((preset) => (
-                              <option key={preset.id} value={preset.id}>{preset.name}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
+                        ✨ Auto-Suggest Reports
+                      </button>
                     </div>
 
-                    {presetWarnings.length > 0 && (
-                      <div className="mt-3 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-3.5 rounded-xl space-y-1.5 leading-relaxed pl-2.5">
-                        <div className="font-bold flex items-center gap-1">
-                          <span>⚠️ Warning: Schema Mismatches Detected</span>
-                        </div>
-                        <ul className="list-disc pl-4 space-y-1">
-                          {presetWarnings.map((warn, i) => (
-                            <li key={i}>{warn}</li>
-                          ))}
-                        </ul>
-                        <p className="text-[10px] text-amber-600 mt-1.5 font-medium">Please verify and manually map the base table, joins, and columns below to match your actual schema.</p>
+                    {activePreset && (
+                      <div className="space-y-3 mt-3">
+                        {presetWarnings.length === 0 ? (
+                          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] p-3.5 rounded-xl flex flex-col gap-1.5 leading-relaxed pl-2.5 shadow-sm">
+                            <div className="font-bold flex items-center justify-between gap-1 w-full">
+                              <span className="flex items-center gap-1">✨ Template Successfully Mapped to Your Schema</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowMappingAssistant(prev => !prev)}
+                                className="text-[10px] text-indigo-750 font-bold hover:underline cursor-pointer"
+                              >
+                                {showMappingAssistant ? 'Hide Schema Mapping' : 'View / Edit Mappings'}
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-emerald-600 font-medium">All preset tables and columns were successfully matched to your database automatically.</p>
+                          </div>
+                        ) : (
+                          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-3.5 rounded-xl flex flex-col gap-1.5 leading-relaxed pl-2.5 shadow-sm">
+                            <div className="font-bold flex items-center justify-between gap-1 w-full">
+                              <span className="flex items-center gap-1">⚠️ Warning: Preset Mismatch Resolved via Auto-Mapper</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowMappingAssistant(prev => !prev)}
+                                className="text-[10px] text-indigo-750 font-bold hover:underline cursor-pointer"
+                              >
+                                {showMappingAssistant ? 'Hide Schema Mapping' : 'Adjust Mapping Options'}
+                              </button>
+                            </div>
+                            <ul className="list-disc pl-4 space-y-0.5 text-[10px] text-amber-700 font-semibold">
+                              {presetWarnings.map((warn, i) => (
+                                <li key={i}>{warn}</li>
+                              ))}
+                            </ul>
+                            <p className="text-[10px] text-amber-600 font-medium mt-1">We have generated best guesses, but some fields could not be matched automatically. Please review and map them below.</p>
+                          </div>
+                        )}
+
+                        {(showMappingAssistant || presetWarnings.length > 0) && (
+                          <div className="border border-slate-200 rounded-xl bg-white p-4.5 space-y-4 shadow-sm">
+                            <div className="space-y-3">
+                              <h4 className="text-[10px] font-black text-indigo-750 uppercase tracking-widest font-mono">Map Tables</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {Object.keys(tableMappings).map(presetTable => (
+                                  <div key={presetTable} className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-bold text-text-muted">Template table <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-800 font-black">{presetTable}</span> maps to:</label>
+                                    <select
+                                      value={tableMappings[presetTable]}
+                                      onChange={(e) => handleTableMapChange(presetTable, e.target.value)}
+                                      className="block w-full rounded-lg border border-card-border bg-slate-50 py-1.5 px-2.5 text-[11px] text-text-main focus:bg-white focus:ring-1 focus:ring-indigo-500 transition-all font-semibold"
+                                    >
+                                      {dashboard?.models?.filter((m: any) => m.isVisible).map((m: any) => (
+                                        <option key={m.id} value={m.name}>{m.displayName} ({m.name})</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="space-y-3 pt-3 border-t border-slate-100">
+                              <h4 className="text-[10px] font-black text-indigo-750 uppercase tracking-widest font-mono">Map Columns</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {Object.keys(columnMappings).map(colKey => {
+                                  const [presetTable, presetField] = colKey.split('.');
+                                  const actualTable = tableMappings[presetTable] || presetTable;
+                                  const model = dashboard?.models?.find((m: any) => m.name === actualTable);
+                                  const actualFields = model?.fields?.filter((f: any) => f.isVisible) || [];
+
+                                  return (
+                                    <div key={colKey} className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-text-muted">Template column <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-800 font-black">{presetTable}.{presetField}</span> maps to:</label>
+                                      <select
+                                        value={columnMappings[colKey]}
+                                        disabled={!actualTable}
+                                        onChange={(e) => handleColumnMapChange(colKey, e.target.value)}
+                                        className="block w-full rounded-lg border border-card-border bg-slate-50 py-1.5 px-2.5 text-[11px] text-text-main focus:bg-white focus:ring-1 focus:ring-indigo-500 transition-all font-semibold disabled:opacity-50"
+                                      >
+                                        {actualFields.map((f: any) => (
+                                          <option key={f.id} value={f.name}>{f.displayName} ({f.name})</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -583,7 +978,7 @@ export default function DashboardConfig() {
                     {reportJoins.length > 0 ? (
                       <div className="space-y-4">
                         {reportJoins.map((join, idx) => {
-                          const participatingTables = [reportBaseTable, ...reportJoins.slice(0, idx).map(j => j.relatedTable)].filter(Boolean);
+                          const participatingTables = Array.from(new Set([reportBaseTable, ...reportJoins.slice(0, idx).map(j => j.relatedTable)].filter(Boolean)));
                           const remainingTables = dashboard?.models
                             ?.filter((m: any) => m.isVisible && !participatingTables.includes(m.name) || m.name === join.relatedTable)
                             .map((m: any) => m.name) || [];
@@ -700,7 +1095,7 @@ export default function DashboardConfig() {
                     <h3 className="text-sm font-bold text-text-main">Select Columns to display</h3>
                     
                     <div className="space-y-4">
-                      {[reportBaseTable, ...reportJoins.map(j => j.relatedTable)].filter(Boolean).map(tName => {
+                      {Array.from(new Set([reportBaseTable, ...reportJoins.map(j => j.relatedTable)].filter(Boolean))).map(tName => {
                         const model = dashboard?.models?.find((m: any) => m.name === tName);
                         if (!model) return null;
 
@@ -773,7 +1168,7 @@ export default function DashboardConfig() {
 
                         return (
                           <div
-                            key={colKey}
+                            key={`${colKey}-${index}`}
                             draggable
                             onDragStart={(e) => {
                               setDraggedIndex(index);
@@ -811,6 +1206,24 @@ export default function DashboardConfig() {
                             </div>
 
                             <div className="flex items-center gap-2">
+                              <select
+                                value={reportColumnFunctions[colKey] || 'NONE'}
+                                onChange={(e) => {
+                                  setReportColumnFunctions(prev => ({
+                                    ...prev,
+                                    [colKey]: e.target.value
+                                  }));
+                                }}
+                                className="rounded-lg border border-card-border bg-white hover:border-slate-300 focus:border-indigo-500 py-1 px-2 text-xs text-text-main w-24 transition-all"
+                              >
+                                <option value="NONE">None</option>
+                                <option value="SUM">SUM</option>
+                                <option value="COUNT">COUNT</option>
+                                <option value="AVG">AVG</option>
+                                <option value="MIN">MIN</option>
+                                <option value="MAX">MAX</option>
+                              </select>
+
                               <input
                                 type="text"
                                 placeholder="Alias (e.g. Email)"
@@ -904,12 +1317,12 @@ export default function DashboardConfig() {
                                   className="block w-full rounded-xl border border-card-border bg-white py-1.5 px-3 text-xs text-text-main font-semibold"
                                 >
                                   <option value="">Select Column</option>
-                                  {reportSelectedColumns.map(colKey => {
+                                  {reportSelectedColumns.map((colKey, optionIndex) => {
                                     const [t, f] = colKey.split('.');
                                     const friendlyT = dashboard?.models?.find((m: any) => m.name === t)?.displayName || t;
                                     const friendlyF = dashboard?.models?.find((m: any) => m.name === t)?.fields?.find((fld: any) => fld.name === f)?.displayName || f;
                                     return (
-                                      <option key={colKey} value={colKey}>{friendlyT} - {friendlyF}</option>
+                                      <option key={`${colKey}-${optionIndex}`} value={colKey}>{friendlyT} - {friendlyF}</option>
                                     );
                                   })}
                                 </select>
@@ -963,6 +1376,47 @@ export default function DashboardConfig() {
                     ) : (
                       <p className="text-xs text-text-muted">No filters. All rows in matching criteria will be retrieved.</p>
                     )}
+                  </div>
+                )}
+
+                {/* Default Sorting Configuration */}
+                {reportBaseTable && reportSelectedColumns.length > 0 && (
+                  <div className="space-y-4 border-t border-card-border pt-5">
+                    <div>
+                      <h3 className="text-sm font-bold text-text-main">Default Sorting Configuration</h3>
+                      <p className="text-xs text-text-muted mt-0.5">Define the default sorting criteria when this report is loaded by admins.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-4 items-center bg-slate-50 border border-card-border p-4.5 rounded-2xl">
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">Sort By Column</label>
+                        <select
+                          value={reportDefaultSortColumn}
+                          onChange={(e) => setReportDefaultSortColumn(e.target.value)}
+                          className="block w-full rounded-xl border border-card-border bg-white py-1.5 px-3 text-xs text-text-main"
+                        >
+                          <option value="">-- No Default Sorting --</option>
+                          {reportSelectedColumns.map((colKey, optionIndex) => {
+                            const [t, f] = colKey.split('.');
+                            const friendlyT = dashboard?.models?.find((m: any) => m.name === t)?.displayName || t;
+                            const friendlyF = dashboard?.models?.find((m: any) => m.name === t)?.fields?.find((fld: any) => fld.name === f)?.displayName || f;
+                            return (
+                              <option key={`${colKey}-${optionIndex}`} value={colKey}>{friendlyT} - {friendlyF}</option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                      <div className="w-40">
+                        <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">Sort Order</label>
+                        <select
+                          value={reportDefaultSortOrder}
+                          onChange={(e) => setReportDefaultSortOrder(e.target.value)}
+                          className="block w-full rounded-xl border border-card-border bg-white py-1.5 px-3 text-xs text-text-main font-bold"
+                        >
+                          <option value="ASC">Ascending (ASC)</option>
+                          <option value="DESC">Descending (DESC)</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1303,6 +1757,100 @@ export default function DashboardConfig() {
                     className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 hover:bg-slate-850 px-5 py-2 text-xs font-bold text-white shadow-md transition-all cursor-pointer"
                   >
                     Close Preview
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Suggestions Modal */}
+          {showSuggestions && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+              <div className="bg-white border border-card-border rounded-2xl w-full max-w-4xl shadow-2xl p-6.5 space-y-5 flex flex-col max-h-[85vh]">
+                <div className="flex items-center justify-between border-b border-card-border pb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-text-main flex items-center gap-2">
+                      <span className="p-1.5 bg-indigo-50 border border-indigo-150 text-indigo-650 rounded-lg">✨</span>
+                      Auto-Suggested Reports
+                    </h3>
+                    <p className="text-xs text-text-muted mt-1">
+                      Dashmint analyzed your active schema relationships and numeric columns to suggest optimized report layouts.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSuggestions(false)}
+                    className="px-3 py-1.5 text-xs font-bold text-text-muted hover:text-text-main border border-card-border rounded-lg bg-white hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto min-h-[250px] pr-2">
+                  {loadingSuggestions ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3 text-text-muted">
+                      <div className="h-7 w-7 animate-spin rounded-full border-3 border-indigo-500 border-t-transparent"></div>
+                      <span className="text-xs font-bold tracking-wide">Analyzing tables and generating blueprints...</span>
+                    </div>
+                  ) : !suggestions || suggestions.length === 0 ? (
+                    <div className="text-center py-16 text-xs text-text-muted font-medium">
+                      No report suggestions could be generated for this schema. Add relations or tables first.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {suggestions.map((sug: any) => {
+                        const typeBadgeColor = sug.joins.length > 0 
+                          ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                          : sug.columns.some((c: any) => c.function && c.function !== 'NONE')
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                        const typeLabel = sug.joins.length > 0
+                          ? 'Joined Detail'
+                          : sug.columns.some((c: any) => c.function && c.function !== 'NONE')
+                            ? 'Aggregate Summary'
+                            : 'Detailed List';
+
+                        return (
+                          <div key={sug.id} className="group border border-card-border hover:border-indigo-200 rounded-2xl p-5 bg-slate-50/50 hover:bg-white transition-all flex flex-col justify-between shadow-xs">
+                            <div className="space-y-2.5">
+                              <div className="flex justify-between items-start gap-3.5">
+                                <h4 className="text-xs font-black text-text-main leading-tight">{sug.name}</h4>
+                                <span className={`text-[9px] font-bold border px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0 ${typeBadgeColor}`}>
+                                  {typeLabel}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-text-muted leading-relaxed font-semibold">{sug.description}</p>
+                              <div className="flex flex-wrap gap-2 text-[10px] font-mono text-text-muted pt-1">
+                                <span className="bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">Base: {sug.baseTable}</span>
+                                {sug.joins.length > 0 && <span className="bg-blue-50/45 border border-blue-100 text-blue-800 px-2 py-0.5 rounded">Joins: {sug.joins.length}</span>}
+                                <span className="bg-slate-105 border border-slate-200 px-2 py-0.5 rounded">Cols: {sug.columns.length}</span>
+                              </div>
+                            </div>
+                            <div className="pt-4 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => handleApplySuggestion(sug)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-indigo-750 bg-indigo-50 border border-indigo-150 group-hover:bg-indigo-650 group-hover:text-white group-hover:border-transparent group-hover:hover:bg-indigo-750 rounded-xl transition-all duration-200 cursor-pointer shadow-sm hover:shadow"
+                              >
+                                Load Suggestion
+                              </button>
+
+                            </div>
+                          </div>
+
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-4 border-t border-card-border flex justify-end shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowSuggestions(false)}
+                    className="px-5 py-2 text-xs font-bold text-text-muted hover:text-text-main border border-card-border rounded-xl bg-white hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    Close
                   </button>
                 </div>
               </div>

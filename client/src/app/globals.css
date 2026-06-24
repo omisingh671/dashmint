@@ -9,7 +9,12 @@
   --color-sidebar-bg: var(--sidebar-bg);
   --color-sidebar-border: var(--sidebar-border);
   --color-text-muted: var(--text-muted);
+
+  --color-indigo-150: #dbe5fc;
+  --color-indigo-650: #493fdc;
+  --color-indigo-750: #3d34b6;
 }
+
 
 :root {
   --background: #f8fafc;

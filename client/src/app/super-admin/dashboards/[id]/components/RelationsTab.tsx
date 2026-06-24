@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import api from '@/lib/api';
-import { Plus, Trash2, Check } from 'lucide-react';
+import { Plus, Trash2, Check, Sparkles } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface RelationsTabProps {
@@ -19,6 +19,64 @@ export default function RelationsTab({ dashboardId, dashboard }: RelationsTabPro
   const [toColumn, setToColumn] = useState('');
   const [relationsSuccess, setRelationsSuccess] = useState('');
   const [relationsError, setRelationsError] = useState('');
+
+  // Auto-Suggest Relations states
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Record<number, boolean>>({});
+
+  // Fetch Suggestions Query
+  const { data: suggestions, isLoading: loadingSuggestions, refetch: refetchSuggestions } = useQuery<any[]>({
+    queryKey: ['relation-suggestions', dashboardId],
+    queryFn: () => api.get(`/relations/${dashboardId}/suggestions`).then(res => res.data),
+    enabled: showSuggestions
+  });
+
+  // Bulk Create Mutation
+  const bulkCreateRelationsMutation = useMutation({
+    mutationFn: (relsToCreate: any[]) => api.post(`/relations/${dashboardId}/bulk`, { relations: relsToCreate }),
+    onSuccess: (res: any) => {
+      refetchRelations();
+      setShowSuggestions(false);
+      setSelectedSuggestions({});
+      setRelationsSuccess(`Successfully created ${res.data?.createdCount || 0} relationships.`);
+      setRelationsError('');
+    },
+    onError: (err: any) => {
+      setRelationsError(err.response?.data?.error || 'Failed to bulk create relationships');
+      setRelationsSuccess('');
+    }
+  });
+
+  // Handle toggling select-all
+  const handleSelectAll = (checked: boolean) => {
+    if (!suggestions) return;
+    const newSelected: Record<number, boolean> = {};
+    if (checked) {
+      suggestions.forEach((_, idx) => {
+        newSelected[idx] = true;
+      });
+    }
+    setSelectedSuggestions(newSelected);
+  };
+
+  // Toggle single suggestion
+  const handleToggleSuggestion = (idx: number) => {
+    setSelectedSuggestions(prev => ({
+      ...prev,
+      [idx]: !prev[idx]
+    }));
+  };
+
+  // Run bulk creation submit
+  const handleBulkSubmit = () => {
+    if (!suggestions) return;
+    const toCreate = suggestions.filter((_, idx) => !!selectedSuggestions[idx]);
+    if (toCreate.length === 0) return;
+    bulkCreateRelationsMutation.mutate(toCreate);
+  };
+
+  const selectedCount = suggestions ? suggestions.filter((_, idx) => !!selectedSuggestions[idx]).length : 0;
+  const isAllSelected = suggestions && suggestions.length > 0 && selectedCount === suggestions.length;
 
   // Confirmation Modal state
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -83,7 +141,19 @@ export default function RelationsTab({ dashboardId, dashboard }: RelationsTabPro
   return (
     <div className="space-y-6">
       <div className="bg-white border border-card-border rounded-2xl p-6.5 shadow-md">
-        <h2 className="text-lg font-bold text-text-main">Add Manual logical relationship</h2>
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-1">
+          <h2 className="text-lg font-bold text-text-main">Add Manual logical relationship</h2>
+          <button
+            type="button"
+            onClick={() => {
+              setShowSuggestions(true);
+              refetchSuggestions();
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-750 rounded-xl transition-all cursor-pointer shadow-sm active:scale-95"
+          >
+            <Sparkles className="h-3.5 w-3.5" /> Auto-Suggest Relations
+          </button>
+        </div>
         <p className="text-sm text-text-muted mt-1 mb-6">Overlay logical Joins between tables without creating physical foreign key constraints in the database.</p>
 
         {relationsSuccess && (
@@ -259,6 +329,120 @@ export default function RelationsTab({ dashboardId, dashboard }: RelationsTabPro
         onConfirm={confirmConfig.onConfirm}
         onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
       />
+
+      {showSuggestions && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white border border-card-border rounded-2xl w-full max-w-2xl shadow-2xl p-6.5 space-y-5 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between border-b border-card-border pb-4">
+              <div>
+                <h3 className="text-base font-bold text-text-main flex items-center gap-2">
+                  <span className="p-1.5 bg-indigo-50 border border-indigo-150 text-indigo-650 rounded-lg">✨</span>
+                  Auto-Suggest Table Relations
+                </h3>
+                <p className="text-xs text-text-muted mt-1">
+                  Dashmint analyzed table and column naming conventions to identify potential logical foreign key relationships.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSuggestions(false)}
+                className="px-3 py-1.5 text-xs font-bold text-text-muted hover:text-text-main border border-card-border rounded-lg bg-white hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto min-h-[250px] pr-2">
+              {loadingSuggestions ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3 text-text-muted">
+                  <div className="h-7 w-7 animate-spin rounded-full border-3 border-indigo-500 border-t-transparent"></div>
+                  <span className="text-xs font-bold tracking-wide">Introspecting schema and identifying relations...</span>
+                </div>
+              ) : !suggestions || suggestions.length === 0 ? (
+                <div className="text-center py-16 text-xs text-text-muted font-semibold">
+                  No new relationship suggestions could be identified for this schema.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-xl border border-card-border">
+                    <label className="flex items-center gap-2 text-xs font-bold text-text-main cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={(e) => handleSelectAll(e.target.checked)}
+                        className="h-4 w-4 rounded border-card-border text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      Select All Suggestions ({suggestions.length})
+                    </label>
+                    <span className="text-xs font-bold text-indigo-650">{selectedCount} selected</span>
+                  </div>
+
+                  <div className="space-y-2.5 max-h-[45vh] overflow-y-auto pr-1">
+                    {suggestions.map((sug, idx) => {
+                      const isChecked = !!selectedSuggestions[idx];
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => handleToggleSuggestion(idx)}
+                          className={`flex items-center gap-3.5 p-3.5 border rounded-xl shadow-xs transition-all cursor-pointer select-none ${
+                            isChecked
+                              ? 'border-indigo-400 bg-indigo-50/20'
+                              : 'border-card-border hover:border-slate-350 hover:bg-slate-50/50 bg-white'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}} // toggled by parent div click
+                            className="h-4 w-4 rounded border-card-border text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-black text-text-main font-mono">{sug.fromTable}</span>
+                              <span className="text-text-muted text-xs font-mono">.{sug.fromColumn}</span>
+                              <span className="text-indigo-600 text-xs font-bold font-mono">➔</span>
+                              <span className="text-emerald-700 text-xs font-black font-mono">{sug.toTable}</span>
+                              <span className="text-text-muted text-xs font-mono">.{sug.toColumn}</span>
+                            </div>
+                            <div className="text-[10px] text-text-muted mt-1 font-semibold">
+                              Links source <span className="font-bold text-text-main">{sug.fromDisplayName}</span> to target <span className="font-bold text-text-main">{sug.toDisplayName}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-card-border flex justify-between items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowSuggestions(false)}
+                className="px-5 py-2.5 text-xs font-bold text-text-muted hover:text-text-main border border-card-border rounded-xl bg-white hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={selectedCount === 0 || bulkCreateRelationsMutation.isPending}
+                onClick={handleBulkSubmit}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-5 py-2.5 text-xs font-bold text-white shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
+              >
+                {bulkCreateRelationsMutation.isPending ? (
+                  <>
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                    Creating...
+                  </>
+                ) : (
+                  `Create ${selectedCount} Selected Relations`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

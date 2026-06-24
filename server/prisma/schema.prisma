@@ -132,18 +132,20 @@ model TableRelation {
 }
 
 model Report {
-  id           String             @id @default(uuid())
-  dashboardId  String
-  dashboard    Dashboard          @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
-  name         String
-  description  String?
-  baseTable    String             // e.g., "orders"
-  columnsJson  String             @db.Text // JSON: Array<{ table: string, field: string, alias: string }>
-  joinsJson    String             @db.Text // JSON: Array<{ type: 'LEFT'|'INNER', relatedTable: string, fromColumn: string, toColumn: string }>
-  filtersJson  String             @db.Text // JSON: Array<{ table: string, field: string, operator: 'equals'|'contains'|'greaterThan'|'lessThan', value: string }>
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  assignments  ReportAssignment[]
+  id                String             @id @default(uuid())
+  dashboardId       String
+  dashboard         Dashboard          @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  name              String
+  description       String?
+  baseTable         String             // e.g., "orders"
+  columnsJson       String             @db.Text // JSON: Array<{ table: string, field: string, alias: string }>
+  joinsJson         String             @db.Text // JSON: Array<{ type: 'LEFT'|'INNER', relatedTable: string, fromColumn: string, toColumn: string }>
+  filtersJson       String             @db.Text // JSON: Array<{ table: string, field: string, operator: 'equals'|'contains'|'greaterThan'|'lessThan', value: string }>
+  defaultSortColumn String?
+  defaultSortOrder  String?            @default("ASC")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  assignments       ReportAssignment[]
 
   @@map("reports")
 }

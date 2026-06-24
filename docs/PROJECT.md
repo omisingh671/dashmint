@@ -310,7 +310,10 @@ Update this section after every major implementation.
 - [x] Report viewer
 - [x] Report permissions
 - [x] Secured/encrypted Database Connection credentials
-- [x] Business Packs report presets (Rental, Education, E-commerce)
+- [x] Business Packs report presets (Rental, Education, E-commerce, CRM/Sales, SaaS Subscriptions, Healthcare/Clinic, Project Management)
+- [x] Custom column aggregations (SUM, COUNT, AVG, MIN, MAX) with dynamic GROUP BY compilation
+- [x] Default sorting configurations for custom reports
+- [x] Database-driven Report Suggestion Engine (schema and relationship introspective analysis)
 
 ### In Progress
 
@@ -319,6 +322,7 @@ Update this section after every major implementation.
 ### Pending
 
 - None
+
 
 ---
 

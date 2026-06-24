@@ -27,3 +27,15 @@ This document outlines the next milestones for the Dashmint dynamic dashboard en
 - [x] **Setup shadcn/ui**: Add shadcn/ui initialization to the Next.js workspace to align with the frontend spec if needed (though the current custom Tailwind 4 styling is already highly polished and functional).
 - [x] **Audit Logs Optimization**: Add pagination or date-range filtering to the Super Admin audit logs dashboard view.
 
+## Milestone 4: Report Builder Enhancements & Suggestion Engine
+*Goal: Expand reporting options with aggregates, default sorting, wider templates, and automatic schema-based report generation.*
+
+- [x] **Database Schema Enhancements**: Support `defaultSortColumn` and `defaultSortOrder` fields on reports.
+- [x] **Backend Aggregation Support**: Support projection of SQL aggregations (`SUM`, `COUNT`, `AVG`, `MIN`, `MAX`) and automatic dynamic routing of `GROUP BY` logic on physical non-aggregated columns.
+- [x] **Correct Paginated Aggregation Totals**: Compute paginated totals using nested `SELECT COUNT(*) FROM (SELECT 1 ... GROUP BY ...) AS subquery` queries.
+- [x] **Default Sorting Logic**: Use default sort configuration in SQL query compilation, resolving ambiguous fields when joining tables.
+- [x] **Introspective Suggestions API**: Implement the database-driven Report Suggestion Engine to automatically draft reports by identifying visibility flags, types, unique flags, relationships, and dimensions.
+- [x] **Expanded Predefined Business Packs**: Added **CRM / Sales**, **SaaS / Subscriptions**, **Healthcare / Clinic**, and **Project Management** categories.
+- [x] **Intuitive Builder UI & Preview**: Add aggregation selects per column, default sorting inputs, suggestion loader drawer, and test report generation with interactive preview.
+
+

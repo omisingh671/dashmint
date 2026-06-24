@@ -55,6 +55,162 @@ router.get('/', async (req: AuthenticatedRequest, res: Response): Promise<any> =
   }
 });
 
+// GET /api/reports/suggestions - Suggests reports based on database schema and relations (SUPER_ADMIN only)
+router.get('/suggestions', requireGlobalRole([GlobalRole.SUPER_ADMIN]), async (req: AuthenticatedRequest, res: Response): Promise<any> => {
+  const { dashboardId } = req.query;
+
+  if (!dashboardId) {
+    return res.status(400).json({ error: 'dashboardId is required' });
+  }
+
+  try {
+    const models = await prisma.schemaModel.findMany({
+      where: { dashboardId: dashboardId as string, isVisible: true },
+      include: { fields: { where: { isVisible: true } } }
+    });
+
+    const relations = await prisma.tableRelation.findMany({
+      where: { dashboardId: dashboardId as string }
+    });
+
+    const suggestions: any[] = [];
+    let sugId = 1;
+
+    for (const model of models) {
+      const pKey = model.fields.find(f => f.isPrimaryKey) || model.fields[0];
+      if (!pKey) continue;
+
+      // 1. Suggest Detailed List Report for this table
+      const listCols = model.fields.map(f => ({
+        table: model.name,
+        field: f.name,
+        alias: f.displayName,
+        function: 'NONE'
+      }));
+
+      suggestions.push({
+        id: `sug_${sugId++}`,
+        name: `All ${model.displayName} Details`,
+        description: `Detailed listing of all records in the ${model.displayName} table.`,
+        baseTable: model.name,
+        joins: [],
+        columns: listCols,
+        filters: [],
+        defaultSortColumn: `${model.name}.${pKey.name}`,
+        defaultSortOrder: 'DESC'
+      });
+
+      // Find status/type/category/role fields for dimension-based aggregation
+      const dimensionFields = model.fields.filter(f => 
+        ['status', 'type', 'category', 'role', 'stage', 'genre', 'gender'].some(kw => f.name.toLowerCase().includes(kw)) ||
+        (f.isUnique === false && ['varchar', 'char', 'string'].some(t => f.type.toLowerCase().includes(t)) && !f.name.toLowerCase().includes('email') && !f.name.toLowerCase().includes('phone') && !f.name.toLowerCase().includes('address') && !f.name.toLowerCase().includes('name'))
+      );
+
+      // Find numeric fields (e.g. quantity, amount, price, score, age)
+      const numericFields = model.fields.filter(f => 
+        ['int', 'decimal', 'float', 'double', 'integer', 'numeric', 'real'].some(t => f.type.toLowerCase().includes(t)) &&
+        !f.isPrimaryKey && 
+        !f.name.toLowerCase().includes('id')
+      );
+
+      // 2. Suggest count summary reports by dimension columns
+      for (const dim of dimensionFields) {
+        suggestions.push({
+          id: `sug_${sugId++}`,
+          name: `${model.displayName} Count by ${dim.displayName}`,
+          description: `Total count of ${model.displayName} grouped by ${dim.displayName}.`,
+          baseTable: model.name,
+          joins: [],
+          columns: [
+            { table: model.name, field: dim.name, alias: dim.displayName, function: 'NONE' },
+            { table: model.name, field: pKey.name, alias: 'Record Count', function: 'COUNT' }
+          ],
+          filters: [],
+          defaultSortColumn: `${model.name}.${dim.name}`,
+          defaultSortOrder: 'ASC'
+        });
+      }
+
+      // 3. Suggest aggregation reports (SUM / AVG) for numeric fields by dimension columns
+      for (const num of numericFields) {
+        const dim = dimensionFields[0] || model.fields.find(f => f.name.toLowerCase().includes('name')) || pKey;
+        suggestions.push({
+          id: `sug_${sugId++}`,
+          name: `Total ${num.displayName} by ${dim.displayName}`,
+          description: `Total sum of ${num.displayName} grouped by ${dim.displayName}.`,
+          baseTable: model.name,
+          joins: [],
+          columns: [
+            { table: model.name, field: dim.name, alias: dim.displayName, function: 'NONE' },
+            { table: model.name, field: num.name, alias: `Total ${num.displayName}`, function: 'SUM' }
+          ],
+          filters: [],
+          defaultSortColumn: `${model.name}.${dim.name}`,
+          defaultSortOrder: 'ASC'
+        });
+
+        suggestions.push({
+          id: `sug_${sugId++}`,
+          name: `Average ${num.displayName} by ${dim.displayName}`,
+          description: `Average of ${num.displayName} grouped by ${dim.displayName}.`,
+          baseTable: model.name,
+          joins: [],
+          columns: [
+            { table: model.name, field: dim.name, alias: dim.displayName, function: 'NONE' },
+            { table: model.name, field: num.name, alias: `Average ${num.displayName}`, function: 'AVG' }
+          ],
+          filters: [],
+          defaultSortColumn: `${model.name}.${dim.name}`,
+          defaultSortOrder: 'ASC'
+        });
+      }
+    }
+
+    // 4. Suggest Relational / Joined Reports
+    for (const rel of relations) {
+      const modelA = models.find(m => m.name === rel.fromTable);
+      const modelB = models.find(m => m.name === rel.toTable);
+      if (!modelA || !modelB) continue;
+
+      const pKeyA = modelA.fields.find(f => f.isPrimaryKey) || modelA.fields[0];
+      const nameFieldB = modelB.fields.find(f => f.name.toLowerCase().includes('name') || f.name.toLowerCase().includes('email') || f.name.toLowerCase().includes('title')) || modelB.fields[0];
+
+      if (!pKeyA || !nameFieldB) continue;
+
+      // Projection: primary key of table A, key fields of table A, and identifying name/title of table B
+      const cols = [
+        { table: modelA.name, field: pKeyA.name, alias: `${modelA.displayName} ID`, function: 'NONE' },
+        ...modelA.fields.filter(f => !f.isPrimaryKey && f.name !== rel.fromColumn && ['varchar', 'datetime', 'int', 'decimal'].some(t => f.type.toLowerCase().includes(t))).slice(0, 3).map(f => ({
+          table: modelA.name,
+          field: f.name,
+          alias: f.displayName,
+          function: 'NONE'
+        })),
+        { table: modelB.name, field: nameFieldB.name, alias: `${modelB.displayName} Info`, function: 'NONE' }
+      ];
+
+      suggestions.push({
+        id: `sug_${sugId++}`,
+        name: `${modelA.displayName} with ${modelB.displayName} Info`,
+        description: `Detailed view of ${modelA.displayName} records joined with related ${modelB.displayName} details.`,
+        baseTable: modelA.name,
+        joins: [
+          { type: 'LEFT', relatedTable: modelB.name, fromColumn: rel.fromColumn, toColumn: rel.toColumn }
+        ],
+        columns: cols,
+        filters: [],
+        defaultSortColumn: `${modelA.name}.${pKeyA.name}`,
+        defaultSortOrder: 'DESC'
+      });
+    }
+
+    return res.json(suggestions);
+  } catch (error) {
+    console.error('Fetch suggestions error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/reports/:id - Retrieve report configuration
 router.get('/:id', async (req: AuthenticatedRequest, res: Response): Promise<any> => {
   const { id } = req.params;
@@ -98,7 +254,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response): Promise<any
 
 // POST /api/reports - Create report configuration (SUPER_ADMIN only)
 router.post('/', requireGlobalRole([GlobalRole.SUPER_ADMIN]), async (req: AuthenticatedRequest, res: Response): Promise<any> => {
-  const { dashboardId, name, description, baseTable, columnsJson, joinsJson, filtersJson } = req.body;
+  const { dashboardId, name, description, baseTable, columnsJson, joinsJson, filtersJson, defaultSortColumn, defaultSortOrder } = req.body;
 
   if (!dashboardId || !name || !baseTable) {
     return res.status(400).json({ error: 'dashboardId, name, and baseTable are required' });
@@ -118,7 +274,9 @@ router.post('/', requireGlobalRole([GlobalRole.SUPER_ADMIN]), async (req: Authen
         baseTable,
         columnsJson: typeof columnsJson === 'string' ? columnsJson : JSON.stringify(columnsJson || []),
         joinsJson: typeof joinsJson === 'string' ? joinsJson : JSON.stringify(joinsJson || []),
-        filtersJson: typeof filtersJson === 'string' ? filtersJson : JSON.stringify(filtersJson || [])
+        filtersJson: typeof filtersJson === 'string' ? filtersJson : JSON.stringify(filtersJson || []),
+        defaultSortColumn,
+        defaultSortOrder
       }
     });
 
@@ -139,7 +297,7 @@ router.post('/', requireGlobalRole([GlobalRole.SUPER_ADMIN]), async (req: Authen
 // PUT /api/reports/:id - Update report configuration (SUPER_ADMIN only)
 router.put('/:id', requireGlobalRole([GlobalRole.SUPER_ADMIN]), async (req: AuthenticatedRequest, res: Response): Promise<any> => {
   const { id } = req.params;
-  const { name, description, baseTable, columnsJson, joinsJson, filtersJson } = req.body;
+  const { name, description, baseTable, columnsJson, joinsJson, filtersJson, defaultSortColumn, defaultSortOrder } = req.body;
 
   try {
     const report = await prisma.report.findUnique({ where: { id } });
@@ -155,7 +313,9 @@ router.put('/:id', requireGlobalRole([GlobalRole.SUPER_ADMIN]), async (req: Auth
         baseTable: baseTable !== undefined ? baseTable : report.baseTable,
         columnsJson: columnsJson !== undefined ? (typeof columnsJson === 'string' ? columnsJson : JSON.stringify(columnsJson)) : report.columnsJson,
         joinsJson: joinsJson !== undefined ? (typeof joinsJson === 'string' ? joinsJson : JSON.stringify(joinsJson)) : report.joinsJson,
-        filtersJson: filtersJson !== undefined ? (typeof filtersJson === 'string' ? filtersJson : JSON.stringify(filtersJson)) : report.filtersJson
+        filtersJson: filtersJson !== undefined ? (typeof filtersJson === 'string' ? filtersJson : JSON.stringify(filtersJson)) : report.filtersJson,
+        defaultSortColumn: defaultSortColumn !== undefined ? defaultSortColumn : report.defaultSortColumn,
+        defaultSortOrder: defaultSortOrder !== undefined ? defaultSortOrder : report.defaultSortOrder
       }
     });
 

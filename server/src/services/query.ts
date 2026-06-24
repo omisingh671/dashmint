@@ -173,6 +173,7 @@ interface ReportColumn {
   table: string;
   field: string;
   alias: string;
+  function?: 'SUM' | 'COUNT' | 'AVG' | 'MIN' | 'MAX' | 'NONE';
 }
 
 interface ReportJoin {
@@ -200,6 +201,8 @@ export async function getReportRecords(
     columnsJson: string;
     joinsJson: string;
     filtersJson: string;
+    defaultSortColumn?: string | null;
+    defaultSortOrder?: string | null;
   },
   params: QueryParams
 ) {
@@ -247,8 +250,17 @@ export async function getReportRecords(
     if (!validFieldKeys.has(key)) {
       throw new Error(`Unauthorized or invalid column selection: ${key}`);
     }
-    // Alias to prevent duplicate name clashes: `orders.id`
-    selectParts.push(`\`${col.table}\`.\`${col.field}\` AS \`${col.table}.${col.field}\``);
+
+    if (col.function && col.function !== 'NONE') {
+      const func = col.function.toUpperCase();
+      if (!['SUM', 'COUNT', 'AVG', 'MIN', 'MAX'].includes(func)) {
+        throw new Error(`Invalid aggregation function: ${func}`);
+      }
+      selectParts.push(`${func}(\`${col.table}\`.\`${col.field}\`) AS \`${col.table}.${col.field}\``);
+    } else {
+      // Alias to prevent duplicate name clashes: `orders.id`
+      selectParts.push(`\`${col.table}\`.\`${col.field}\` AS \`${col.table}.${col.field}\``);
+    }
   }
 
   // 3. Build FROM and JOIN clauses
@@ -333,31 +345,56 @@ export async function getReportRecords(
 
   const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-  // 5. Build ORDER BY sorting safely
-  let orderByClause = '';
-  if (sortBy) {
-    // sortBy is like "orders.id"
-    if (!validFieldKeys.has(sortBy)) {
-      throw new Error(`Invalid sort column: ${sortBy}`);
+  // 5. Build GROUP BY clause if there are aggregate columns
+  let groupByClause = '';
+  const hasAggregation = selectedColumns.some(col => col.function && col.function !== 'NONE');
+  if (hasAggregation) {
+    const nonAggregateFields = selectedColumns
+      .filter(col => !col.function || col.function === 'NONE')
+      .map(col => `\`${col.table}\`.\`${col.field}\``);
+    if (nonAggregateFields.length > 0) {
+      groupByClause = `GROUP BY ${nonAggregateFields.join(', ')}`;
     }
-    const [sTable, sField] = sortBy.split('.');
-    orderByClause = `ORDER BY \`${sTable}\`.\`${sField}\` ${sortOrder}`;
+  }
+
+  // 6. Build ORDER BY sorting safely (with default fallback)
+  let orderByClause = '';
+  const activeSortBy = sortBy || report.defaultSortColumn;
+  const activeSortOrder = sortBy ? sortOrder : (report.defaultSortOrder === 'DESC' ? 'DESC' : 'ASC');
+
+  if (activeSortBy) {
+    if (!validFieldKeys.has(activeSortBy)) {
+      throw new Error(`Invalid sort column: ${activeSortBy}`);
+    }
+    const isProjected = selectedColumns.some(col => `${col.table}.${col.field}` === activeSortBy);
+    if (isProjected) {
+      orderByClause = `ORDER BY \`${activeSortBy}\` ${activeSortOrder}`;
+    } else {
+      const [sTable, sField] = activeSortBy.split('.');
+      orderByClause = `ORDER BY \`${sTable}\`.\`${sField}\` ${activeSortOrder}`;
+    }
   }
 
   // Get active connection pool
   const pool = await dbPoolManager.getPool(report.dashboardId);
 
-  // 6. Retrieve total count
-  const countSql = `SELECT COUNT(*) as total ${sqlFrom} ${whereClause}`;
+  // 7. Retrieve total count
+  let countSql = '';
+  if (hasAggregation) {
+    countSql = `SELECT COUNT(*) as total FROM (SELECT 1 ${sqlFrom} ${whereClause} ${groupByClause}) AS subquery`;
+  } else {
+    countSql = `SELECT COUNT(*) as total ${sqlFrom} ${whereClause}`;
+  }
   const [countResult] = await pool.query(countSql, queryParams);
   const totalCount = (countResult as any)[0]?.total || 0;
 
-  // 7. Query records
+  // 8. Query records
   const selectClause = selectParts.join(', ');
   const recordsSql = `
     SELECT ${selectClause} 
     ${sqlFrom} 
     ${whereClause} 
+    ${groupByClause}
     ${orderByClause} 
     LIMIT ? OFFSET ?
   `;
@@ -368,11 +405,19 @@ export async function getReportRecords(
   // Prepare UI columns meta
   const uiColumns = selectedColumns.map(col => {
     const fieldDef = visibleFields.find(f => f.schemaModel.name === col.table && f.name === col.field);
+    let displayName = col.alias;
+    if (!displayName) {
+      const baseName = formatDisplayName(`${col.table} ${col.field}`);
+      displayName = col.function && col.function !== 'NONE'
+        ? `${col.function}(${baseName})`
+        : baseName;
+    }
     return {
       name: `${col.table}.${col.field}`, // alias name matching row key
-      displayName: col.alias || formatDisplayName(`${col.table} ${col.field}`),
+      displayName,
       type: fieldDef?.type || 'varchar',
-      isPrimaryKey: fieldDef?.isPrimaryKey || false
+      isPrimaryKey: fieldDef?.isPrimaryKey || false,
+      function: col.function || 'NONE'
     };
   });
 
